@@ -306,9 +306,15 @@ ipcMain.handle('file:bulkConvert', async (event, { filePaths, outputFormat, opti
       const base = path.basename(filePath, path.extname(filePath));
       const isFix = outputFormat === 'fix';
       const isExtract = outputFormat.startsWith('extract');
+      const isWatermark = outputFormat === 'watermark-pdf';
+      const isDenoise = outputFormat === 'denoise';
       let outputPath;
       if (isFix) {
         outputPath = path.join(dir, `${base}_fixed.mp4`);
+      } else if (isWatermark) {
+        outputPath = path.join(dir, `${base}_watermarked.pdf`);
+      } else if (isDenoise) {
+        outputPath = path.join(dir, `${base}_denoised.${ext}`);
       } else if (isExtract) {
         outputPath = path.join(dir, `${base}_${outputFormat.replace('-','_')}`);
         fs.mkdirSync(outputPath, { recursive: true });
@@ -321,6 +327,10 @@ ipcMain.handle('file:bulkConvert', async (event, { filePaths, outputFormat, opti
       };
       if (isFix) {
         await fixForPlatform(filePath, outputPath, options, subEmit);
+      } else if (isWatermark) {
+        await watermarkPdf(filePath, outputPath, options, subEmit);
+      } else if (isDenoise) {
+        await runDenoise(filePath, outputPath, subEmit, event.sender);
       } else if (outputFormat === 'extract-text') {
         await extractText(filePath, outputPath, ext, subEmit, options);
       } else if (outputFormat === 'extract-images') {
@@ -815,9 +825,12 @@ function getOutputFormats(category, ext) {
     return f.filter(fo => fo !== ext);
   }
 
-  // For video/audio also add FIX
+  // For video/audio also add FIX and denoise
   let list = (fmt[category] || []).filter(f => f !== ext);
-  if (category === 'video' || category === 'audio') list.push('fix');
+  if (category === 'video' || category === 'audio') {
+    list.push('fix');
+    list.push('denoise');
+  }
 
   // For images that are PDFs or similar, we can extract text
   if (category === 'image') list.push('extract-text');
@@ -917,12 +930,15 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
   const isFix      = outputFormat === 'fix';
   const isExtract  = outputFormat.startsWith('extract');
   const isWatermark = outputFormat === 'watermark-pdf';
+  const isDenoise   = outputFormat === 'denoise';
 
   let outputPath;
   if (isFix) {
     outputPath = path.join(dir, `${base}_fixed.mp4`);
   } else if (isWatermark) {
     outputPath = path.join(dir, `${base}_watermarked.pdf`);
+  } else if (isDenoise) {
+    outputPath = path.join(dir, `${base}_denoised.${ext}`);
   } else if (isExtract) {
     // Extraction outputs to a folder
     outputPath = path.join(dir, `${base}_${outputFormat.replace('-','_')}`);
@@ -940,6 +956,8 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
       await fixForPlatform(filePath, outputPath, options, emit);
     } else if (isWatermark) {
       await watermarkPdf(filePath, outputPath, options, emit);
+    } else if (isDenoise) {
+      await runDenoise(filePath, outputPath, emit, event.sender);
     } else if (outputFormat === 'extract-text') {
       await extractText(filePath, outputPath, ext, emit, options);
     } else if (outputFormat === 'extract-images') {
@@ -978,6 +996,25 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
       outputSize = st.isDirectory() ? getDirSize(outputPath) : st.size;
     } catch {}
     return { success: true, outputPath, outputSize };
+  } catch (err) {
+    event.sender.send('convert:error', { message: err.message });
+    return { error: err.message };
+  }
+});
+
+ipcMain.handle('post-process-denoise', async (event, filePath) => {
+  const ext = path.extname(filePath).toLowerCase().slice(1);
+  const dir = path.dirname(filePath);
+  const base = path.basename(filePath, path.extname(filePath));
+  const outputPath = path.join(dir, `${base}_denoised.${ext}`);
+  const emit = (pct, msg) => event.sender.send('convert:progress', { percent: pct, message: msg });
+  
+  try {
+    emit(0, 'Starting background noise removal...');
+    await runDenoise(filePath, outputPath, emit, event.sender);
+    emit(100, 'Done!');
+    const st = fs.statSync(outputPath);
+    return { success: true, outputPath, outputSize: st.size };
   } catch (err) {
     event.sender.send('convert:error', { message: err.message });
     return { error: err.message };
@@ -2532,4 +2569,290 @@ async function extractRpf(input, outputDir, emit) {
     'Note: RPF archives are often encrypted. File names are hashed and may not be recoverable.\n' +
     'For full extraction, use specialized tools like OpenIV.\n\n' +
     info.slice(0, 100).join('\n'), 'utf-8');
+}
+
+// ── Background Noise Removal (Denoise) Helpers ──────────────────────────────
+
+function execPromise(cmd, options = {}) {
+  const { exec } = require('child_process');
+  return new Promise((resolve, reject) => {
+    exec(cmd, options, (error, stdout, stderr) => {
+      if (error) {
+        console.error(`Exec error: ${error.message}`);
+        console.error(`Stderr: ${stderr}`);
+        console.error(`Stdout: ${stdout}`);
+        reject(new Error(stderr || error.message));
+      } else {
+        resolve(stdout);
+      }
+    });
+  });
+}
+
+async function ensurePython(emit) {
+  const userDataDir = app.getPath('userData');
+  const cachePath = path.join(userDataDir, 'deepfilter_installed.json');
+
+  if (fs.existsSync(cachePath)) {
+    try {
+      const cache = JSON.parse(fs.readFileSync(cachePath, 'utf8'));
+      if (cache.installed && cache.pythonPath && fs.existsSync(cache.pythonPath)) {
+        return cache.pythonPath;
+      }
+      if (cache.installed && cache.pythonPath === 'system') {
+        const { execSync } = require('child_process');
+        try {
+          execSync('python --version');
+          return 'python';
+        } catch {
+          try {
+            execSync('python3 --version');
+            return 'python3';
+          } catch {}
+        }
+      }
+    } catch (e) {}
+  }
+
+  // 1. Check system Python
+  const { execSync } = require('child_process');
+  for (const cmd of ['python', 'python3']) {
+    try {
+      const out = execSync(`${cmd} --version`, { stdio: 'pipe' }).toString();
+      if (out.includes('Python 3.')) {
+        return cmd;
+      }
+    } catch (e) {}
+  }
+
+  // 2. If Windows and not found, download & extract embedded python
+  if (process.platform === 'win32') {
+    const pyEmbedDir = path.join(userDataDir, 'py_embed');
+    const pythonExe = path.join(pyEmbedDir, 'python.exe');
+
+    if (fs.existsSync(pythonExe)) {
+      return pythonExe;
+    }
+
+    emit('Downloading Python 3.11 embeddable package...');
+    fs.mkdirSync(pyEmbedDir, { recursive: true });
+
+    const zipPath = path.join(userDataDir, 'python_embed.zip');
+    const pyUrl = 'https://www.python.org/ftp/python/3.11.9/python-3.11.9-embed-amd64.zip';
+    
+    await dlFile(pyUrl, zipPath, (pct) => {
+      emit(`Downloading Python 3.11: ${Math.round(pct)}%`);
+    });
+
+    emit('Extracting Python...');
+    const StreamZip = r('node-stream-zip');
+    const zip = new StreamZip.async({ file: zipPath });
+    await zip.extract(null, pyEmbedDir);
+    await zip.close();
+    
+    // Clean up zip
+    try { fs.unlinkSync(zipPath); } catch (e) {}
+
+    // Uncomment "import site" in python311._pth
+    const pthFile = path.join(pyEmbedDir, 'python311._pth');
+    if (fs.existsSync(pthFile)) {
+      let content = fs.readFileSync(pthFile, 'utf8');
+      content = content.replace(/#\s*import site/, 'import site');
+      fs.writeFileSync(pthFile, content, 'utf8');
+    }
+
+    // Download get-pip.py
+    emit('Downloading pip installer...');
+    const pipPyPath = path.join(userDataDir, 'get-pip.py');
+    const pipUrl = 'https://bootstrap.pypa.io/get-pip.py';
+    await dlFile(pipUrl, pipPyPath, (pct) => {
+      emit(`Downloading pip: ${Math.round(pct)}%`);
+    });
+
+    // Run get-pip.py
+    emit('Installing pip...');
+    try {
+      execSync(`"${pythonExe}" "${pipPyPath}" --no-warn-script-location`, { stdio: 'pipe' });
+    } catch (err) {
+      throw new Error(`Failed to install pip: ${err.message}`);
+    } finally {
+      try { fs.unlinkSync(pipPyPath); } catch (e) {}
+    }
+
+    return pythonExe;
+  } else {
+    throw new Error('Python 3 is required for AI background noise removal. Please install Python 3 on your system and try again.');
+  }
+}
+
+async function ensureDeepFilterNet(pythonPath, emit) {
+  emit('Checking DeepFilterNet installation...');
+  try {
+    await execPromise(`"${pythonPath}" -c "import df"`);
+    return;
+  } catch (e) {
+    emit('Installing DeepFilterNet (first-time setup, may take a minute)...');
+    try {
+      await execPromise(`"${pythonPath}" -m pip install --no-cache-dir deepfilternet --no-warn-script-location`);
+      await execPromise(`"${pythonPath}" -c "import df"`);
+    } catch (err) {
+      throw new Error(`Failed to install DeepFilterNet: ${err.message}`);
+    }
+  }
+}
+
+function saveInstallCache(pythonPath) {
+  const userDataDir = app.getPath('userData');
+  const cachePath = path.join(userDataDir, 'deepfilter_installed.json');
+  try {
+    fs.writeFileSync(cachePath, JSON.stringify({
+      installed: true,
+      pythonPath: pythonPath === 'python' || pythonPath === 'python3' ? 'system' : pythonPath
+    }), 'utf8');
+  } catch (e) {}
+}
+
+async function runDenoise(inputPath, outputPath, emit, sender) {
+  const ext = path.extname(inputPath).toLowerCase().slice(1);
+  const isVideo = detectCategory(ext) === 'video';
+
+  const tempDir = path.join(app.getPath('userData'), `temp_denoise_${Date.now()}`);
+  fs.mkdirSync(tempDir, { recursive: true });
+
+  const pass1Path = path.join(tempDir, 'pass1.wav');
+
+  try {
+    emit(10, 'Initializing Pass 1 (FFmpeg filter chain)...');
+    
+    const ffmpeg = r('fluent-ffmpeg');
+    const ffmpegBin = getFFmpegPath();
+    ffmpeg.setFfmpegPath(ffmpegBin);
+
+    await new Promise((resolve, reject) => {
+      ffmpeg(inputPath)
+        .noVideo()
+        .audioFilters([
+          'afftdn',
+          'afftdn',
+          'anlmdn',
+          'anlmdn',
+          'equalizer=f=60:width_type=o:width=2:g=-15'
+        ])
+        .audioCodec('pcm_s16le')
+        .toFormat('wav')
+        .on('start', () => emit(15, 'Running Pass 1 (FFmpeg)...'))
+        .on('progress', (progress) => {
+          if (progress.percent) {
+            emit(15 + Math.round(progress.percent * 0.25), `Pass 1: ${Math.round(progress.percent)}%`);
+          }
+        })
+        .on('error', reject)
+        .on('end', resolve)
+        .save(pass1Path);
+    });
+
+    emit(45, 'Pass 1 complete. Checking AI engine...');
+
+    let pythonPath = null;
+    let usePass2 = false;
+
+    try {
+      pythonPath = await ensurePython((msg) => sender.send('denoise-install-progress', msg));
+      await ensureDeepFilterNet(pythonPath, (msg) => sender.send('denoise-install-progress', msg));
+      saveInstallCache(pythonPath);
+      usePass2 = true;
+    } catch (err) {
+      console.error('Pass 2 initialization failed:', err);
+      emit(45, `AI Denoise setup failed: ${err.message}. Falling back to Pass 1...`);
+    }
+
+    let finalAudioPath = pass1Path;
+
+    if (usePass2) {
+      const dfOutputDir = path.join(tempDir, 'df_out');
+      fs.mkdirSync(dfOutputDir, { recursive: true });
+
+      emit(50, 'Running Pass 2 (AI Noise removal)...');
+      try {
+        await execPromise(`"${pythonPath}" -m df.enhance -o "${dfOutputDir}" "${pass1Path}"`);
+        
+        const files = fs.readdirSync(dfOutputDir);
+        if (files.length > 0) {
+          finalAudioPath = path.join(dfOutputDir, files[0]);
+          emit(75, 'Pass 2 complete. Finalizing output...');
+        } else {
+          throw new Error('DeepFilterNet completed but no files were found in the output directory.');
+        }
+      } catch (err) {
+        console.error('DeepFilterNet run failed:', err);
+        emit(75, `AI Denoise execution failed: ${err.message}. Falling back to Pass 1 output...`);
+      }
+    }
+
+    // Finalize: Mux (video) or Convert (audio)
+    if (isVideo) {
+      await new Promise((resolve, reject) => {
+        ffmpeg()
+          .input(inputPath)
+          .input(finalAudioPath)
+          .outputOptions([
+            '-map 0:v:0',
+            '-map 1:a:0',
+            '-c:v copy',
+            '-c:a aac',
+            '-shortest',
+            '-y'
+          ])
+          .on('start', () => emit(80, 'Muxing denoised audio with original video...'))
+          .on('progress', (progress) => {
+            if (progress.percent) {
+              emit(80 + Math.round(progress.percent * 0.15), `Muxing: ${Math.round(progress.percent)}%`);
+            }
+          })
+          .on('error', reject)
+          .on('end', resolve)
+          .save(outputPath);
+      });
+    } else {
+      const targetExt = path.extname(outputPath).slice(1);
+      await new Promise((resolve, reject) => {
+        const cmd = ffmpeg(finalAudioPath);
+        
+        if (targetExt === 'mp3') {
+          cmd.audioCodec('libmp3lame').audioBitrate('320k');
+        } else if (targetExt === 'wav') {
+          cmd.audioCodec('pcm_s16le');
+        } else if (targetExt === 'flac') {
+          cmd.audioCodec('flac');
+        } else if (targetExt === 'aac') {
+          cmd.audioCodec('aac');
+        } else if (targetExt === 'ogg') {
+          cmd.audioCodec('libvorbis');
+        } else if (targetExt === 'opus') {
+          cmd.audioCodec('libopus');
+        }
+
+        cmd
+          .on('start', () => emit(80, `Converting audio to ${targetExt.toUpperCase()}...`))
+          .on('progress', (progress) => {
+            if (progress.percent) {
+              emit(80 + Math.round(progress.percent * 0.15), `Converting: ${Math.round(progress.percent)}%`);
+            }
+          })
+          .on('error', reject)
+          .on('end', resolve)
+          .save(outputPath);
+      });
+    }
+
+    emit(100, 'Done!');
+  } finally {
+    try {
+      if (fs.existsSync(tempDir)) {
+        fs.rmSync(tempDir, { recursive: true, force: true });
+      }
+    } catch (e) {
+      console.error('Failed to cleanup temp dir:', e);
+    }
+  }
 }

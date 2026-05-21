@@ -1,5 +1,17 @@
 # Contrary Convertor — Updates
 
+## v1.7.0 (May 22, 2026)
+
+### 🔊 AI & DSP Background Noise Removal
+- New **BG Noise Removal (2-pass AI+FFmpeg)** post-processing option for audio and video files.
+- **Pass 1 (DSP):** Uses a double `afftdn`, `anlmdn`, and low-shelf `equalizer` filter chain in FFmpeg.
+- **Pass 2 (AI):** Uses DeepFilterNet AI network for advanced speech enhancement and noise reduction.
+- **Silent Auto-Installer:** Lazily installs Python 3.11 embeddable package and DeepFilterNet on Windows on first run (cached for future uses).
+- **Graceful Fallbacks:** Non-Windows platforms or environments without DeepFilterNet support fall back to the optimized Pass 1 DSP filters.
+- Supports single and bulk conversions, saving output as `<name>_denoised.<ext>`.
+
+---
+
 ## v1.6.0 (April 30, 2026)
 
 ### 🔖 PDF Watermark

@@ -64,4 +64,11 @@ contextBridge.exposeInMainWorld('electronAPI', {
   checkForUpdates: () => ipcRenderer.send('update:check'),
   downloadUpdate: (url) => ipcRenderer.send('update:download', url),
   installUpdate: (path) => ipcRenderer.send('update:install', path),
+
+  // Denoising
+  denoiseFile: (filePath) => ipcRenderer.invoke('post-process-denoise', filePath),
+  onDenoiseInstallProgress: (cb) => ipcRenderer.on('denoise-install-progress', (_e, d) => cb(d)),
+  removeDenoiseInstallListener: () => {
+    ipcRenderer.removeAllListeners('denoise-install-progress');
+  },
 });

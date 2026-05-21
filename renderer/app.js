@@ -410,6 +410,7 @@ const FORMAT_DESC = {
   'extract':        'Extract archive contents',
   'remove-bg':      'AI background removal',
   'watermark-pdf':  'Watermark PDF',
+  'denoise':        'BG Noise Removal (2-pass AI+FFmpeg)',
 };
 
 // --------------------------- Dropdown ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -439,6 +440,7 @@ function populateDropdown(info) {
     else if (['txt','html','pdf'].includes(fmt)) group = 'Document';
     else if (fmt === 'remove-bg') group = 'Image';
     else if (fmt === 'watermark-pdf') group = 'Document';
+    else if (fmt === 'denoise') group = 'Post Process';
     if (!groups[group]) groups[group] = [];
     groups[group].push(fmt);
   });
@@ -551,10 +553,16 @@ function updateOptionsPanel(category, format, probe) {
   if (optExtract) optExtract.style.display = 'none';
   const optWatermark = $('opt-watermark');
   if (optWatermark) optWatermark.style.display = 'none';
+  const optDenoise = $('opt-denoise');
+  if (optDenoise) optDenoise.style.display = 'none';
 
   const audioOnlyFmt = ['mp3','wav','ogg','flac','aac','opus'];
 
-  if (format === 'watermark-pdf') {
+  if (format === 'denoise') {
+    if (optDenoise) optDenoise.style.display = 'flex';
+    const statusText = $('denoise-status-text');
+    if (statusText) statusText.textContent = 'Ready. Select "CONVERT" to start background noise removal.';
+  } else if (format === 'watermark-pdf') {
     if (optWatermark) optWatermark.style.display = 'flex';
   } else if (format === 'fix') {
     optFix.style.display = 'flex';
@@ -622,6 +630,13 @@ convertBtn.addEventListener('click', async () => {
   const options = gatherOptions();
 
   window.electronAPI.onProgress(({ percent, message }) => setProgress(percent, message));
+  if (state.selectedFormat === 'denoise') {
+    window.electronAPI.onDenoiseInstallProgress((msg) => {
+      const statusText = $('denoise-status-text');
+      if (statusText) statusText.textContent = msg;
+      setProgress(0, msg);
+    });
+  }
 
   try {
     const result = await window.electronAPI.convertFile({
@@ -651,11 +666,14 @@ convertBtn.addEventListener('click', async () => {
     }
   } catch (err) {
     showError(err.message);
+  } finally {
+    state.converting = false;
+    updateConvertBtn();
+    window.electronAPI.removeProgressListener();
+    if (state.selectedFormat === 'denoise') {
+      window.electronAPI.removeDenoiseInstallListener();
+    }
   }
-
-  state.converting = false;
-  updateConvertBtn();
-  window.electronAPI.removeProgressListener();
 });
 
 function gatherOptions() {
@@ -753,6 +771,13 @@ convertBtn.addEventListener('click', async () => {
   const filePaths = state.bulkFiles.map(f => f.path);
 
   window.electronAPI.onProgress(({ percent, message }) => setProgress(percent, message));
+  if (state.selectedFormat === 'denoise') {
+    window.electronAPI.onDenoiseInstallProgress((msg) => {
+      const statusText = $('denoise-status-text');
+      if (statusText) statusText.textContent = msg;
+      setProgress(0, msg);
+    });
+  }
 
   try {
     const results = await window.electronAPI.bulkConvert({
@@ -783,12 +808,15 @@ convertBtn.addEventListener('click', async () => {
     setTimeout(() => hide(progressSection), 3000);
   } catch (err) {
     showError(err.message);
+  } finally {
+    state.converting = false;
+    state.bulkFiles = [];
+    updateConvertBtn();
+    window.electronAPI.removeProgressListener();
+    if (state.selectedFormat === 'denoise') {
+      window.electronAPI.removeDenoiseInstallListener();
+    }
   }
-
-  state.converting = false;
-  state.bulkFiles = [];
-  updateConvertBtn();
-  window.electronAPI.removeProgressListener();
 }, true); // useCapture to fire before the original handler
 
 // --------------------------- History ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
