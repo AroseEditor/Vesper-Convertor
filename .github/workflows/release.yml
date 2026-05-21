@@ -1,0 +1,100 @@
+name: Build and Release
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      matrix:
+        os: [windows-latest, macos-latest, ubuntu-latest]
+        include:
+          - os: windows-latest
+            artifact_name: Windows-Installer
+            artifact_path: dist/*.exe
+            build_cmd: npx electron-builder --win nsis
+          - os: macos-latest
+            artifact_name: Mac-DMG
+            artifact_path: dist/*.dmg
+            build_cmd: npx electron-builder --mac dmg
+          - os: ubuntu-latest
+            artifact_name: Linux-AppImage
+            artifact_path: dist/*.AppImage
+            build_cmd: npx electron-builder --linux AppImage
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: 'npm'
+      - name: Install dependencies
+        run: npm install --legacy-peer-deps
+      - name: Generate bitmaps
+        run: node generate-bitmaps.js
+      - name: Build application
+        run: ${{ matrix.build_cmd }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: ${{ matrix.artifact_path }}
+          retention-days: 7
+
+  release:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Get version and release notes
+        id: prep
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          echo "version=$VERSION" >> $GITHUB_OUTPUT
+          
+          # Extract release notes
+          node -e "
+          const fs = require('fs');
+          const version = '$VERSION';
+          const updates = fs.readFileSync('updates.md', 'utf8');
+          const lines = updates.split('\n');
+          let content = [];
+          let record = false;
+          for (const line of lines) {
+            if (line.startsWith('## v' + version)) {
+              record = true;
+              continue;
+            }
+            if (record) {
+              if (line.trim() === '---' || (line.startsWith('## v') && !line.includes(version))) {
+                break;
+              }
+              content.push(line);
+            }
+          }
+          fs.writeFileSync('release-notes.txt', content.join('\n').trim());
+          "
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+      - name: Flatten artifacts structure
+        run: |
+          mkdir release-files
+          find artifacts -type f \( -name "*.exe" -o -name "*.dmg" -o -name "*.AppImage" \) -exec cp {} release-files/ \;
+          ls -l release-files
+      - name: Create Draft Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: v${{ steps.prep.outputs.version }}
+          name: v${{ steps.prep.outputs.version }}
+          body_path: release-notes.txt
+          draft: true
+          files: release-files/*
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
