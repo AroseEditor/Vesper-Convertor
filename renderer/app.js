@@ -401,6 +401,7 @@ const FORMAT_DESC = {
   // Image
   jpg:  'JPEG image', png:  'Lossless image', webp: 'Web image', avif: 'AV1 image',
   gif:  'Animated image', tiff: 'TIFF image', bmp:  'Bitmap image', ico:  'Icon file',
+  upscale2x: '2× upscale (Lanczos3)', upscale4x: '4× upscale (Lanczos3)',
   // Video
   mp4:  'H.264 video', webm: 'VP9 video', mov:  'QuickTime', avi:  'Legacy video',
   mkv:  'Matroska video',
@@ -408,7 +409,8 @@ const FORMAT_DESC = {
   mp3:  'MPEG audio', wav:  'Lossless PCM', ogg:  'Vorbis audio', flac: 'Lossless audio',
   aac:  'AAC audio', opus: 'Opus audio',
   // Document
-  txt:  'Plain text', html: 'Web page', pdf:  'PDF document',
+  txt:  'Plain text', html: 'Web page', pdf:  'PDF document', md: 'Markdown',
+  images: 'PDF pages as PNG images',
   // Data
   json: 'JSON data', csv:  'CSV spreadsheet', xml:  'XML data', yaml: 'YAML config',
   xlsx: 'Excel sheet',
@@ -416,15 +418,18 @@ const FORMAT_DESC = {
   toml: 'TOML config', env:  'Dotenv file',
   // 3D
   glb:  'glTF binary', obj:  'Wavefront OBJ', fbx:  'FBX model',
+  // Archive
+  zip: 'ZIP archive', '7z': '7-Zip archive', tar: 'TAR archive',
   // Special
   fix:         'Platform compatibility fix',
+  tts:         'Text-to-speech MP3 (Edge TTS)',
   'extract-text':   'Extract text content',
   'extract-images': 'Extract images from PDF',
   'extract-fonts':  'Extract embedded fonts',
   'extract':        'Extract archive contents',
   'remove-bg':      'AI background removal',
   'watermark-pdf':  'Watermark PDF',
-  'denoise':        'BG Noise Removal (2-pass AI+FFmpeg)',
+  'denoise':        'BG Noise Removal (3-pass AI+FFmpeg)',
 };
 
 // --------------------------- Dropdown ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -450,11 +455,13 @@ function populateDropdown(info) {
     else if (['glb','obj','fbx'].includes(fmt)) group = '3D Models';
     else if (['mp4','webm','mov','avi','mkv','gif'].includes(fmt)) group = 'Video';
     else if (['mp3','wav','ogg','flac','aac','opus'].includes(fmt)) group = 'Audio';
-    else if (['jpg','png','webp','avif','tiff','bmp','ico'].includes(fmt)) group = 'Image';
-    else if (['txt','html','pdf'].includes(fmt)) group = 'Document';
+    else if (['jpg','png','webp','avif','tiff','bmp','ico','upscale2x','upscale4x'].includes(fmt)) group = 'Image';
+    else if (['txt','html','pdf','md','images'].includes(fmt)) group = 'Document';
+    else if (['zip','7z','tar'].includes(fmt)) group = 'Archive';
     else if (fmt === 'remove-bg') group = 'Image';
     else if (fmt === 'watermark-pdf') group = 'Document';
     else if (fmt === 'denoise') group = 'Post Process';
+    else if (fmt === 'tts') group = 'Audio';
     if (!groups[group]) groups[group] = [];
     groups[group].push(fmt);
   });
@@ -651,6 +658,9 @@ convertBtn.addEventListener('click', async () => {
       setProgress(0, msg);
     });
   }
+  if (state.selectedFormat === 'tts' && window.electronAPI.onTtsInstallProgress) {
+    window.electronAPI.onTtsInstallProgress((msg) => setProgress(0, msg));
+  }
 
   try {
     const result = await window.electronAPI.convertFile({
@@ -686,6 +696,9 @@ convertBtn.addEventListener('click', async () => {
     window.electronAPI.removeProgressListener();
     if (state.selectedFormat === 'denoise') {
       window.electronAPI.removeDenoiseInstallListener();
+    }
+    if (window.electronAPI.removeTtsInstallListener) {
+      window.electronAPI.removeTtsInstallListener();
     }
   }
 });
@@ -1959,3 +1972,17 @@ btnApply.addEventListener('click', async () => {
     window.electronAPI.installUpdate(currentInstallerPath);
   });
 })();
+
+// ── Context-menu file open (Windows right-click integration) ──────────────────
+if (window.electronAPI.onOpenFile) {
+  window.electronAPI.onOpenFile((filePath) => {
+    if (filePath) loadFile(filePath);
+  });
+}
+
+// ── TTS install progress ───────────────────────────────────────────────────────
+if (window.electronAPI.onTtsInstallProgress) {
+  window.electronAPI.onTtsInstallProgress((msg) => {
+    setProgress(0, msg);
+  });
+}
