@@ -1,0 +1,16 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(dir /s /b)",
+      "Bash(powershell -Command \"Get-ChildItem -Path . -Depth 2 -Directory | Select-Object FullName\")",
+      "Bash(powershell -Command \"Get-Content main.js -TotalCount 20 | Select-Object -Last 5\")",
+      "Bash(powershell -Command \"\\(Get-Content package.json | ConvertFrom-Json\\).dependencies | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name | Sort-Object\")",
+      "Skill(update-config)",
+      "Skill(update-config:*)",
+      "Bash(npm install *)",
+      "Bash(Test-Path \"c:\\\\Users\\\\iusem\\\\Downloads\\\\My Work\\\\Convertor\\\\updates.md\")",
+      "Bash(git add *)",
+      "Bash(git commit -m ' *)"
+    ]
+  }
+}

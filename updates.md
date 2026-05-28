@@ -1,5 +1,55 @@
 # Contrary Convertor — Updates
 
+## v1.9.0 (May 28, 2026)
+
+### Photo(s) → PDF / PDF → Photos
+- Convert any image (JPG, PNG, WEBP, BMP, TIFF, GIF, AVIF, HEIC) directly to a PDF page (embedded into A4 via pdf-lib)
+- Export PDF pages back to individual PNG images — one image per page, rendered via Puppeteer
+- Multi-image → single PDF: combine multiple photos into one PDF document
+
+### Windows Context Menu Integration
+- Installer registers "Convert with Contrary Convertor" in the Windows right-click menu for all file types
+- Opening a file via context menu automatically loads it in the app ready for conversion
+- Uninstaller cleanly removes the registry entries
+
+### Extended Archive Support (7zip-bin)
+- Full read/write for: ZIP, RAR, 7Z, TAR, TGZ, TBZ2, TXZ, BZ2, XZ, GZ
+- Extract-to-folder for all formats
+- Cross-format conversion (e.g. RAR → ZIP, 7Z → TAR)
+
+### Programming Language Files (new "code" category)
+- Supported: C, C++, Python, Rust, Julia, Kotlin, Nim, Dart, Go, Java, JavaScript, TypeScript, JAR, CSS, PHP, Ruby, Swift, Scala, Haskell, Lua, R, MATLAB, Perl, Shell, Batch, PowerShell, TOML, INI, CONF, LOG
+- Convert to PDF (syntax-highlighted via Puppeteer), HTML (dark theme), or TXT
+
+### Text-to-Speech (TTS)
+- Convert any text/code/document to MP3 using Microsoft Edge TTS (en-US-ChristopherNeural voice)
+- Auto-installs `edge-tts` and `pydub` on first use via Python
+- 192k bitrate MP3 output with normalization
+- Works on: TXT, MD, HTML, RTF, CSV, YAML, JSON, TOML, XML, and all code file types
+
+### Image Upscaling (2× / 4×)
+- Upscale any image 2× or 4× using sharp's Lanczos3 high-quality resampling
+- Non-destructive: saves as new file alongside the original
+
+### PPTX Conversions
+- PPTX → PDF, HTML, TXT, MD
+- No LibreOffice required — text extracted via native XML parsing
+
+### Expanded Markdown Output
+- PDF → MD, DOCX → MD, PPTX → MD, HTML → MD, TXT → MD
+- DOCX uses mammoth + turndown for clean Markdown from Word documents
+
+### Noise Removal — 3-Pass Pipeline
+- Pass 1: 6-filter FFmpeg chain: highpass → lowpass → afftdn (nr=35 nf=-25) → anlmdn → speechnorm
+- Pass 2: DeepFilterNet AI (unchanged)
+- New Pass 3: post-AI cleanup — afftdn + anlmdn + dynaudnorm + loudnorm for broadcast-ready output
+
+### Internal / Build
+- New npm dependencies: `7zip-bin`, `node-7z`, `marked`, `pptxgenjs`, `turndown`
+- `build/installer.nsh` rewritten with context menu hooks and clean uninstall
+
+---
+
 ## v1.8.0 (May 28, 2026)
 
 ### 🎵 YouTube MP3 Fix

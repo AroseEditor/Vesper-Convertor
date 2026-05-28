@@ -71,4 +71,17 @@ contextBridge.exposeInMainWorld('electronAPI', {
   removeDenoiseInstallListener: () => {
     ipcRenderer.removeAllListeners('denoise-install-progress');
   },
+
+  // Multi-image → PDF
+  imagesToPdf: (params) => ipcRenderer.invoke('images:toPdf', params),
+
+  // Text-to-Speech
+  ttsFile: (filePath) => ipcRenderer.invoke('file:tts', filePath),
+  onTtsInstallProgress: (cb) => ipcRenderer.on('tts-install-progress', (_e, d) => cb(d)),
+  removeTtsInstallListener: () => {
+    ipcRenderer.removeAllListeners('tts-install-progress');
+  },
+
+  // Context menu file open
+  onOpenFile: (cb) => ipcRenderer.on('open-file', (_e, filePath) => cb(filePath)),
 });

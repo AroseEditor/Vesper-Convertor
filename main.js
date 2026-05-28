@@ -52,6 +52,17 @@ function createMainWindow() {
 // ─── App lifecycle ────────────────────────────────────────────────────────────
 app.whenReady().then(() => {
   createMainWindow();
+
+  // Handle file passed via Windows context menu (e.g. "Convert with Contrary Convertor")
+  const fileArg = process.argv.slice(app.isPackaged ? 1 : 2).find(a => {
+    try { return fs.existsSync(a) && fs.statSync(a).isFile(); } catch { return false; }
+  });
+  if (fileArg) {
+    mainWindow.webContents.once('did-finish-load', () => {
+      mainWindow.webContents.send('open-file', path.resolve(fileArg));
+    });
+  }
+
   // Check for updates 5s after launch (non-blocking)
   setTimeout(() => checkForUpdates(), 5000);
 });
@@ -347,6 +358,7 @@ ipcMain.handle('file:bulkConvert', async (event, { filePaths, outputFormat, opti
           case 'data': case 'config': case 'spreadsheet': await convertData(filePath, outputPath, outputFormat, options, subEmit); break;
           case 'archive': await convertArchive(filePath, outputPath, outputFormat, options, subEmit); break;
           case 'web': case 'text': await convertWeb(filePath, outputPath, outputFormat, options, subEmit); break;
+          case 'code': await convertCode(filePath, outputPath, outputFormat, options, subEmit); break;
           case 'font': await convertFont(filePath, outputPath, outputFormat, options, subEmit); break;
           case '3d': await convert3D(filePath, outputPath, outputFormat, ext, subEmit); break;
           default: throw new Error(`Unsupported: ${category}`);
@@ -906,14 +918,15 @@ function detectCategory(ext) {
     image:        ['jpg','jpeg','png','webp','avif','gif','tiff','tif','bmp','svg','ico','heic'],
     video:        ['mp4','mov','avi','mkv','webm','flv','wmv','m4v'],
     audio:        ['mp3','wav','ogg','flac','aac','m4a','wma','opus'],
-    document:     ['pdf','docx','doc','odt'],
+    document:     ['pdf','docx','doc','odt','pptx','ppt'],
     data:         ['json','csv','xml','yaml','yml','toml'],
     config:       ['env'],
     spreadsheet:  ['xlsx','xls','ods'],
-    archive:      ['zip','tar','gz'],
+    archive:      ['zip','tar','gz','7z','rar','bz2','xz','tgz','tbz2','txz','jar'],
     'game-archive':['pak','rpf','wad','obb'],
     web:          ['html','htm'],
     text:         ['txt','md','markdown'],
+    code:         ['c','cpp','py','rs','jl','kt','nim','dart','go','java','js','ts','h','hpp','cs','rb','php','swift','sh','bat','ps1','r','lua','sql'],
     font:         ['ttf','otf','woff','woff2'],
     '3d':         ['fbx','obj','glb','gltf'],
   };
@@ -938,34 +951,41 @@ function getMimeFromExt(ext) {
 
 function getOutputFormats(category, ext) {
   const fmt = {
-    image:        ['jpg','png','webp','avif','gif','tiff','bmp','ico','remove-bg'],
+    image:        ['jpg','png','webp','avif','gif','tiff','bmp','ico','pdf','upscale2x','upscale4x','remove-bg'],
     video:        ['mp4','webm','mov','avi','mkv','gif','mp3','wav','ogg','flac','aac','opus'],
     audio:        ['mp3','wav','ogg','flac','aac','opus'],
-    document:     { pdf:['html','extract-text','extract-images','extract-fonts','watermark-pdf'], docx:['pdf','html','txt','extract-text','extract-images'], doc:['pdf','html','txt','extract-text'], odt:['pdf','html','txt','extract-text','extract-images'] },
-    data:         ['json','csv','xml','yaml','toml','env'],
+    document:     {
+      pdf:  ['html','md','txt','images','extract-text','extract-images','extract-fonts','watermark-pdf'],
+      docx: ['pdf','html','txt','md','extract-text','extract-images'],
+      doc:  ['pdf','html','txt','md','extract-text'],
+      odt:  ['pdf','html','txt','md','extract-text','extract-images'],
+      pptx: ['pdf','html','txt','md'],
+      ppt:  ['pdf','html','txt','md'],
+    },
+    data:         ['json','csv','xml','yaml','toml','env','xlsx'],
     config:       ['json','yaml','toml'],
     spreadsheet:  ['csv','json','xlsx'],
-    archive:      ['zip','tar'],
+    archive:      ['zip','7z','tar','extract'],
     'game-archive':['extract'],
-    web:          ['pdf','png','txt','extract-text'],
-    text:         ['pdf','html','extract-text'],
+    web:          ['pdf','png','txt','md','extract-text'],
+    text:         ['pdf','html','md','tts','extract-text'],
+    code:         ['pdf','html','txt','tts'],
     font:         ['ttf','otf','extract-text'],
     '3d':         ['glb','obj','fbx'],
   };
 
   if (category === 'document') {
-    const f = fmt.document[ext] || fmt.document.docx;
+    const f = fmt.document[ext] || ['pdf','html','txt','md'];
     return f.filter(fo => fo !== ext);
   }
 
-  // For video/audio also add FIX and denoise
   let list = (fmt[category] || []).filter(f => f !== ext);
   if (category === 'video' || category === 'audio') {
     list.push('fix');
     list.push('denoise');
+    list.push('tts');
   }
 
-  // For images that are PDFs or similar, we can extract text
   if (category === 'image') list.push('extract-text');
 
   return list;
@@ -1060,10 +1080,14 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
   const base       = path.basename(filePath, path.extname(filePath));
 
   // Fix mode: output suffix is _fixed, always mp4
-  const isFix      = outputFormat === 'fix';
-  const isExtract  = outputFormat.startsWith('extract');
-  const isWatermark = outputFormat === 'watermark-pdf';
-  const isDenoise   = outputFormat === 'denoise';
+  const isFix        = outputFormat === 'fix';
+  const isExtract    = outputFormat.startsWith('extract');
+  const isWatermark  = outputFormat === 'watermark-pdf';
+  const isDenoise    = outputFormat === 'denoise';
+  const isUpscale    = outputFormat === 'upscale2x' || outputFormat === 'upscale4x';
+  const isTTS        = outputFormat === 'tts';
+  const isPdfImages  = outputFormat === 'images';
+  const isArchiveExt = outputFormat === 'extract' && ['zip','7z','rar','gz','bz2','xz','tar','tgz','tbz2','txz','jar'].includes(ext);
 
   let outputPath;
   if (isFix) {
@@ -1072,9 +1096,15 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
     outputPath = path.join(dir, `${base}_watermarked.pdf`);
   } else if (isDenoise) {
     outputPath = path.join(dir, `${base}_denoised.${ext}`);
-  } else if (isExtract) {
-    // Extraction outputs to a folder
-    outputPath = path.join(dir, `${base}_${outputFormat.replace('-','_')}`);
+  } else if (isUpscale) {
+    outputPath = path.join(dir, `${base}_${outputFormat}.${ext === 'jpg' || ext === 'jpeg' ? 'jpg' : 'png'}`);
+  } else if (isTTS) {
+    outputPath = path.join(dir, `${base}_speech.mp3`);
+  } else if (isPdfImages) {
+    outputPath = path.join(dir, `${base}_images`);
+    fs.mkdirSync(outputPath, { recursive: true });
+  } else if (isExtract || isArchiveExt) {
+    outputPath = path.join(dir, `${base}_${outputFormat.replace(/-/g,'_')}`);
     fs.mkdirSync(outputPath, { recursive: true });
   } else {
     outputPath = path.join(dir, `${base}_converted.${outputFormat}`);
@@ -1091,6 +1121,12 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
       await watermarkPdf(filePath, outputPath, options, emit);
     } else if (isDenoise) {
       await runDenoise(filePath, outputPath, emit, event.sender);
+    } else if (isUpscale) {
+      await upscaleImage(filePath, outputPath, outputFormat, emit);
+    } else if (isTTS) {
+      await runTTS(filePath, outputPath, emit, event.sender);
+    } else if (isPdfImages) {
+      await pdfToImages(filePath, outputPath, emit);
     } else if (outputFormat === 'extract-text') {
       await extractText(filePath, outputPath, ext, emit, options);
     } else if (outputFormat === 'extract-images') {
@@ -1103,7 +1139,7 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
       }
     } else if (outputFormat === 'extract-fonts') {
       await extractPdfFonts(filePath, outputPath, emit);
-    } else if (outputFormat === 'extract') {
+    } else if (outputFormat === 'extract' && ['pak','rpf','wad','obb'].includes(ext)) {
       await extractGameArchive(filePath, outputPath, ext, emit);
     } else {
       const category = detectCategory(ext);
@@ -1116,6 +1152,7 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
         case 'spreadsheet':             await convertData(filePath, outputPath, outputFormat, options, emit); break;
         case 'archive':                 await convertArchive(filePath, outputPath, outputFormat, options, emit); break;
         case 'web': case 'text':        await convertWeb(filePath, outputPath, outputFormat, options, emit); break;
+        case 'code':                    await convertCode(filePath, outputPath, outputFormat, options, emit); break;
         case 'font':                    await convertFont(filePath, outputPath, outputFormat, options, emit); break;
         case '3d':                      await convert3D(filePath, outputPath, outputFormat, ext, emit); break;
         default: throw new Error(`Unsupported file category: ${category}`);
@@ -1321,6 +1358,22 @@ async function convertImage(input, output, format, options, emit) {
       const icoBuf = await pngToIco(pngBuffers);
       fs.writeFileSync(output, icoBuf);
     },
+    pdf: async () => {
+      const { PDFDocument } = r('pdf-lib');
+      const pdfDoc = await PDFDocument.create();
+      const meta = await sharp(input, { failOnError: false }).metadata();
+      const imgBuf = await sharp(input, { failOnError: false }).rotate().jpeg({ quality: 95 }).toBuffer();
+      const jpgImage = await pdfDoc.embedJpg(imgBuf);
+      const { width: iw, height: ih } = jpgImage.scale(1);
+      // A4 with margin, scale to fit
+      const pageW = 595, pageH = 842, margin = 30;
+      const maxW = pageW - margin * 2, maxH = pageH - margin * 2;
+      const scale = Math.min(maxW / iw, maxH / ih, 1);
+      const dw = iw * scale, dh = ih * scale;
+      const page = pdfDoc.addPage([pageW, pageH]);
+      page.drawImage(jpgImage, { x: (pageW - dw) / 2, y: (pageH - dh) / 2, width: dw, height: dh });
+      fs.writeFileSync(output, await pdfDoc.save());
+    },
   };
 
   emit(60, 'Converting…');
@@ -1517,19 +1570,20 @@ async function convertDocument(input, output, format, options, emit) {
   const ext = path.extname(input).toLowerCase().slice(1);
   emit(10, 'Loading document…');
 
-  if ((ext === 'docx' || ext === 'doc') && format === 'html') {
+  // ── DOCX / DOC ────────────────────────────────────────────────────────────
+  if (['docx','doc'].includes(ext) && format === 'html') {
     const mammoth = r('mammoth');
     emit(40, 'Converting DOCX → HTML…');
     const res = await mammoth.convertToHtml({ path: input });
-    fs.writeFileSync(output, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Document</title></head><body>${res.value}</body></html>`, 'utf-8');
+    fs.writeFileSync(output, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>Document</title><style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;line-height:1.6;}</style></head><body>${res.value}</body></html>`, 'utf-8');
 
-  } else if ((ext === 'docx' || ext === 'doc') && format === 'txt') {
+  } else if (['docx','doc'].includes(ext) && format === 'txt') {
     const mammoth = r('mammoth');
     emit(40, 'Extracting text…');
     const res = await mammoth.extractRawText({ path: input });
     fs.writeFileSync(output, res.value, 'utf-8');
 
-  } else if ((ext === 'docx' || ext === 'doc') && format === 'pdf') {
+  } else if (['docx','doc'].includes(ext) && format === 'pdf') {
     const mammoth = r('mammoth');
     emit(30, 'Converting DOCX → HTML…');
     const { value } = await mammoth.convertToHtml({ path: input });
@@ -1537,11 +1591,61 @@ async function convertDocument(input, output, format, options, emit) {
     emit(60, 'Rendering PDF…');
     await htmlToPdf(html, output);
 
+  } else if (['docx','doc'].includes(ext) && format === 'md') {
+    const mammoth = r('mammoth');
+    emit(30, 'Converting DOCX → HTML…');
+    const { value } = await mammoth.convertToHtml({ path: input });
+    emit(60, 'Converting HTML → Markdown…');
+    const TurndownService = r('turndown');
+    const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced' });
+    fs.writeFileSync(output, td.turndown(value), 'utf-8');
+
+  // ── ODT ───────────────────────────────────────────────────────────────────
+  } else if (ext === 'odt') {
+    if (format === 'pdf' || format === 'html' || format === 'txt' || format === 'md') {
+      const mammoth = r('mammoth');
+      emit(40, 'Converting ODT…');
+      if (format === 'txt') {
+        const res = await mammoth.extractRawText({ path: input });
+        fs.writeFileSync(output, res.value, 'utf-8');
+      } else if (format === 'md') {
+        const { value } = await mammoth.convertToHtml({ path: input });
+        const TurndownService = r('turndown');
+        fs.writeFileSync(output, new TurndownService({ headingStyle: 'atx' }).turndown(value), 'utf-8');
+      } else {
+        const { value } = await mammoth.convertToHtml({ path: input });
+        const html = `<!DOCTYPE html><html><head><meta charset="utf-8"><style>body{font-family:Arial,sans-serif;margin:40px;line-height:1.6;}</style></head><body>${value}</body></html>`;
+        if (format === 'html') fs.writeFileSync(output, html, 'utf-8');
+        else { emit(60, 'Rendering PDF…'); await htmlToPdf(html, output); }
+      }
+    } else {
+      throw new Error(`ODT → ${format} is not supported.`);
+    }
+
+  // ── PDF ───────────────────────────────────────────────────────────────────
   } else if (ext === 'pdf' && format === 'html') {
-    emit(40, 'Converting PDF → HTML…');
-    const { PDFDocument } = r('pdf-lib');
-    const doc  = await PDFDocument.load(fs.readFileSync(input));
-    fs.writeFileSync(output, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${path.basename(input)}</title></head><body><h1>${path.basename(input)}</h1><p>${doc.getPageCount()} page(s)</p></body></html>`, 'utf-8');
+    emit(30, 'Extracting PDF text…');
+    const pdfParse = r('pdf-parse');
+    let text = '';
+    try { text = (await pdfParse(fs.readFileSync(input))).text; } catch {}
+    fs.writeFileSync(output, `<!DOCTYPE html><html><head><meta charset="utf-8"><title>${path.basename(input)}</title><style>body{font-family:Arial,sans-serif;max-width:800px;margin:40px auto;line-height:1.7;white-space:pre-wrap;}</style></head><body><h1>${escHtml(path.basename(input))}</h1><div>${escHtml(text)}</div></body></html>`, 'utf-8');
+
+  } else if (ext === 'pdf' && format === 'txt') {
+    emit(40, 'Extracting PDF text…');
+    const pdfParse = r('pdf-parse');
+    const { text } = await pdfParse(fs.readFileSync(input));
+    fs.writeFileSync(output, text, 'utf-8');
+
+  } else if (ext === 'pdf' && format === 'md') {
+    emit(40, 'Extracting PDF text…');
+    const pdfParse = r('pdf-parse');
+    const { text, numpages } = await pdfParse(fs.readFileSync(input));
+    const md = `# ${path.basename(input, '.pdf')}\n\n_${numpages} page(s)_\n\n---\n\n${text.trim()}`;
+    fs.writeFileSync(output, md, 'utf-8');
+
+  // ── PPTX / PPT ────────────────────────────────────────────────────────────
+  } else if (['pptx','ppt'].includes(ext)) {
+    await convertPptx(input, output, format, options, emit);
 
   } else {
     throw new Error(`Conversion from ${ext} to ${format} is not supported.`);
@@ -1645,58 +1749,60 @@ function writeEnvFile(data) {
 
 // ── Archive ───────────────────────────────────────────────────────────────────
 async function convertArchive(input, output, format, options, emit) {
+  const sevenBin = require('7zip-bin');
+  const Seven = require('node-7z');
   const ext = path.extname(input).toLowerCase().slice(1);
   emit(10, 'Preparing…');
 
-  if (ext === 'zip') {
-    const StreamZip = r('node-stream-zip');
-    const zip       = new StreamZip.async({ file: input });
-    const entries   = await zip.entries();
-    const total     = Object.keys(entries).length;
-    let done        = 0;
+  const bin = sevenBin.path7za;
 
-    if (format === 'tar') {
-      const archiver   = r('archiver');
-      const outStream  = fs.createWriteStream(output);
-      const archive    = archiver('tar', { gzip: true });
-      const extractDir = output + '_tmp';
-      fs.mkdirSync(extractDir, { recursive: true });
-
-      for (const entry of Object.values(entries)) {
-        if (!entry.isDirectory) {
-          const ep = path.join(extractDir, entry.name);
-          fs.mkdirSync(path.dirname(ep), { recursive: true });
-          await zip.extract(entry.name, ep);
-        }
-        emit(Math.min(Math.round((++done / total) * 50) + 5, 55), `Extracting ${done}/${total}…`);
-      }
-      await zip.close();
-
-      await new Promise((res, rej) => {
-        outStream.on('close', res);
-        archive.on('error', rej);
-        archive.pipe(outStream);
-        archive.directory(extractDir, false);
-        archive.finalize();
+  if (format === 'extract') {
+    // Extract to folder
+    emit(20, `Extracting ${ext.toUpperCase()} archive…`);
+    fs.mkdirSync(output, { recursive: true });
+    await new Promise((resolve, reject) => {
+      const stream = Seven.extractFull(input, output, {
+        $bin: bin,
+        $progress: true,
+        recursive: true,
+        overwrite: 'a',
       });
-      fs.rmSync(extractDir, { recursive: true, force: true });
+      stream.on('progress', (p) => {
+        if (p.percent) emit(20 + Math.round(p.percent * 0.7), `Extracting: ${Math.round(p.percent)}%…`);
+      });
+      stream.on('end', resolve);
+      stream.on('error', (e) => reject(new Error(e.stderr || String(e))));
+    });
 
-    } else {
-      // Extract to folder
-      const outDir = output;
-      fs.mkdirSync(outDir, { recursive: true });
-      for (const entry of Object.values(entries)) {
-        if (!entry.isDirectory) {
-          const ep = path.join(outDir, entry.name);
-          fs.mkdirSync(path.dirname(ep), { recursive: true });
-          await zip.extract(entry.name, ep);
-        }
-        emit(Math.min(Math.round((++done / total) * 90) + 5, 95), `Extracting ${done}/${total}…`);
-      }
-      await zip.close();
-    }
   } else {
-    throw new Error('Only ZIP input is supported for archive conversion.');
+    // Convert archive format: extract to temp, re-pack in target format
+    const tempDir = output + '_tmp_' + Date.now();
+    fs.mkdirSync(tempDir, { recursive: true });
+    try {
+      emit(15, `Extracting ${ext.toUpperCase()}…`);
+      await new Promise((resolve, reject) => {
+        const stream = Seven.extractFull(input, tempDir, { $bin: bin, recursive: true, overwrite: 'a' });
+        stream.on('progress', (p) => {
+          if (p.percent) emit(15 + Math.round(p.percent * 0.4), `Extracting: ${Math.round(p.percent)}%…`);
+        });
+        stream.on('end', resolve);
+        stream.on('error', (e) => reject(new Error(e.stderr || String(e))));
+      });
+
+      emit(60, `Creating ${format.toUpperCase()} archive…`);
+      // 7zip output format is determined by output file extension
+      const glob = path.join(tempDir, '*');
+      await new Promise((resolve, reject) => {
+        const stream = Seven.add(output, glob, { $bin: bin, recursive: true });
+        stream.on('progress', (p) => {
+          if (p.percent) emit(60 + Math.round(p.percent * 0.3), `Compressing: ${Math.round(p.percent)}%…`);
+        });
+        stream.on('end', resolve);
+        stream.on('error', (e) => reject(new Error(e.stderr || String(e))));
+      });
+    } finally {
+      try { fs.rmSync(tempDir, { recursive: true, force: true }); } catch {}
+    }
   }
   emit(90, 'Finalizing…');
 }
@@ -1733,6 +1839,20 @@ async function convertWeb(input, output, format, options, emit) {
 
   } else if (ext === 'txt' && format === 'html') {
     fs.writeFileSync(output, `<!DOCTYPE html><html><head><meta charset="utf-8"></head><body><pre>${escHtml(content)}</pre></body></html>`, 'utf-8');
+
+  } else if (ext === 'txt' && format === 'md') {
+    // Plain text wrapped in a markdown document
+    fs.writeFileSync(output, content, 'utf-8');
+
+  } else if ((ext === 'html' || ext === 'htm') && format === 'md') {
+    emit(40, 'Converting HTML → Markdown…');
+    const TurndownService = r('turndown');
+    const td = new TurndownService({ headingStyle: 'atx', codeBlockStyle: 'fenced', bulletListMarker: '-' });
+    fs.writeFileSync(output, td.turndown(content), 'utf-8');
+
+  } else if ((ext === 'md' || ext === 'markdown') && format === 'txt') {
+    // Strip markdown syntax to plain text
+    fs.writeFileSync(output, content.replace(/^#{1,6}\s+/gm,'').replace(/\*\*(.+?)\*\*/g,'$1').replace(/\*(.+?)\*/g,'$1').replace(/`(.+?)`/g,'$1').replace(/\[(.+?)\]\(.+?\)/g,'$1'), 'utf-8');
 
   } else {
     throw new Error(`Conversion from ${ext} to ${format} is not supported.`);
@@ -2855,28 +2975,32 @@ async function runDenoise(inputPath, outputPath, emit, sender) {
   const pass1Path = path.join(tempDir, 'pass1.wav');
 
   try {
-    emit(10, 'Initializing Pass 1 (FFmpeg filter chain)...');
-    
+    emit(10, 'Initializing Pass 1 (FFmpeg deep filter chain)...');
+
     const ffmpeg = r('fluent-ffmpeg');
     const ffmpegBin = getFFmpegPath();
     ffmpeg.setFfmpegPath(ffmpegBin);
 
+    // Pass 1: aggressive multi-stage FFmpeg denoise
+    // highpass removes rumble, lowpass removes hiss, afftdn with high noise-floor,
+    // anlmdn for non-local means denoise, speechnorm normalises speech dynamics
     await new Promise((resolve, reject) => {
       ffmpeg(inputPath)
         .noVideo()
         .audioFilters([
-          'afftdn',
-          'afftdn',
-          'anlmdn',
-          'anlmdn',
-          'equalizer=f=60:width_type=o:width=2:g=-15'
+          'highpass=f=80',
+          'lowpass=f=12000',
+          'afftdn=nf=-25:nt=w:om=o:tr=1:nr=10',
+          'anlmdn=s=0.00015:p=0.002:r=0.002:m=15',
+          'afftdn=nf=-30:nt=w:om=o:tr=1',
+          'speechnorm=e=25:r=0.0001:l=1',
         ])
         .audioCodec('pcm_s16le')
         .toFormat('wav')
         .on('start', () => emit(15, 'Running Pass 1 (FFmpeg)...'))
         .on('progress', (progress) => {
           if (progress.percent) {
-            emit(15 + Math.round(progress.percent * 0.25), `Pass 1: ${Math.round(progress.percent)}%`);
+            emit(15 + Math.round(progress.percent * 0.20), `Pass 1: ${Math.round(progress.percent)}%`);
           }
         })
         .on('error', reject)
@@ -2884,7 +3008,7 @@ async function runDenoise(inputPath, outputPath, emit, sender) {
         .save(pass1Path);
     });
 
-    emit(45, 'Pass 1 complete. Checking AI engine...');
+    emit(38, 'Pass 1 complete. Checking AI engine...');
 
     let pythonPath = null;
     let usePass2 = false;
@@ -2920,6 +3044,32 @@ async function runDenoise(inputPath, outputPath, emit, sender) {
         console.error('DeepFilterNet run failed:', err);
         emit(75, `AI Denoise execution failed: ${err.message}. Falling back to Pass 1 output...`);
       }
+    }
+
+    // Pass 3: additional FFmpeg spectral + dynamic cleanup on DeepFilterNet output
+    const pass3Path = path.join(tempDir, 'pass3.wav');
+    try {
+      emit(76, 'Running Pass 3 (final spectral cleanup)...');
+      await new Promise((resolve, reject) => {
+        ffmpeg(finalAudioPath)
+          .noVideo()
+          .audioFilters([
+            'afftdn=nf=-45:nt=w:om=o:tr=1',
+            'anlmdn=s=0.0002:p=0.003:r=0.003:m=20',
+            'dynaudnorm=g=5:p=0.9:m=100:r=0',
+            'loudnorm=I=-16:TP=-1.5:LRA=11',
+          ])
+          .audioCodec('pcm_s16le')
+          .toFormat('wav')
+          .on('progress', (progress) => {
+            if (progress.percent) emit(76 + Math.round(progress.percent * 0.05), `Pass 3: ${Math.round(progress.percent)}%`);
+          })
+          .on('error', (e) => { console.error('Pass 3 error:', e.message); resolve(); }) // non-fatal
+          .on('end', () => { finalAudioPath = pass3Path; resolve(); })
+          .save(pass3Path);
+      });
+    } catch (err) {
+      console.error('Pass 3 failed (non-fatal):', err.message);
     }
 
     // Finalize: Mux (video) or Convert (audio)
@@ -2989,3 +3139,334 @@ async function runDenoise(inputPath, outputPath, emit, sender) {
     }
   }
 }
+
+// ═════════════════════════════════════════════════════════════════════════════
+//  NEW CONVERTERS v1.9.0
+// ═════════════════════════════════════════════════════════════════════════════
+
+// ── Image Upscaling ───────────────────────────────────────────────────────────
+async function upscaleImage(input, output, scaleMode, emit) {
+  const sharp = r('sharp');
+  const meta = await sharp(input, { failOnError: false }).metadata();
+  const scale = scaleMode === 'upscale4x' ? 4 : 2;
+  const newW = Math.round((meta.width || 512) * scale);
+  const newH = Math.round((meta.height || 512) * scale);
+
+  emit(20, `Upscaling ${scale}x: ${meta.width}×${meta.height} → ${newW}×${newH}…`);
+
+  const ext = path.extname(input).toLowerCase().slice(1);
+  let pipeline = sharp(input, { failOnError: false })
+    .rotate()
+    .resize(newW, newH, { kernel: 'lanczos3', fastShrinkOnLoad: false })
+    .sharpen({ sigma: 0.8, m1: 0.5, m2: 2, x1: 2, y2: 10, y3: 20 });
+
+  emit(60, 'Saving upscaled image…');
+  if (ext === 'jpg' || ext === 'jpeg') {
+    await pipeline.jpeg({ quality: 97, mozjpeg: true }).toFile(output);
+  } else if (ext === 'webp') {
+    await pipeline.webp({ quality: 97 }).toFile(output);
+  } else {
+    await pipeline.png({ compressionLevel: 2 }).toFile(output);
+  }
+  emit(90, 'Finalizing…');
+}
+
+// ── Code File Converter ───────────────────────────────────────────────────────
+async function convertCode(input, output, format, options, emit) {
+  const content = fs.readFileSync(input, 'utf-8');
+  const ext     = path.extname(input).toLowerCase().slice(1);
+  const lang    = ext;
+  emit(20, `Processing ${ext.toUpperCase()} file…`);
+
+  const LANG_NAMES = {
+    c:'C', cpp:'C++', py:'Python', rs:'Rust', jl:'Julia', kt:'Kotlin',
+    nim:'Nim', dart:'Dart', go:'Go', java:'Java', js:'JavaScript',
+    ts:'TypeScript', h:'C Header', hpp:'C++ Header', cs:'C#', rb:'Ruby',
+    php:'PHP', swift:'Swift', sh:'Shell', bat:'Batch', ps1:'PowerShell',
+    r:'R', lua:'Lua', sql:'SQL', jar:'Java Archive',
+  };
+  const langName = LANG_NAMES[ext] || ext.toUpperCase();
+
+  if (format === 'txt') {
+    fs.writeFileSync(output, content, 'utf-8');
+
+  } else if (format === 'html') {
+    const highlighted = escHtml(content);
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<title>${escHtml(path.basename(input))}</title>
+<style>
+  body{background:#1e1e2e;color:#cdd6f4;margin:0;font-family:monospace;}
+  .header{background:#181825;padding:12px 20px;border-bottom:1px solid #313244;display:flex;align-items:center;gap:10px;}
+  .badge{background:#89b4fa;color:#1e1e2e;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:bold;}
+  pre{margin:0;padding:24px;line-height:1.6;font-size:14px;overflow-x:auto;}
+  .lineno{color:#6c7086;user-select:none;margin-right:16px;display:inline-block;min-width:3ch;text-align:right;}
+</style></head>
+<body>
+<div class="header"><span class="badge">${langName}</span><span>${escHtml(path.basename(input))}</span></div>
+<pre>${highlighted.split('\n').map((l,i)=>`<span class="lineno">${i+1}</span>${l}`).join('\n')}</pre>
+</body></html>`;
+    fs.writeFileSync(output, html, 'utf-8');
+
+  } else if (format === 'pdf') {
+    const highlighted = escHtml(content);
+    const html = `<!DOCTYPE html>
+<html><head><meta charset="utf-8">
+<style>
+  body{background:#fff;font-family:'Courier New',monospace;font-size:10pt;margin:20px;}
+  h2{font-family:Arial,sans-serif;font-size:14pt;margin-bottom:8px;}
+  pre{white-space:pre-wrap;word-break:break-all;line-height:1.5;}
+  .ln{color:#aaa;margin-right:12px;user-select:none;}
+</style></head>
+<body>
+<h2>${escHtml(langName)}: ${escHtml(path.basename(input))}</h2>
+<pre>${highlighted.split('\n').map((l,i)=>`<span class="ln">${String(i+1).padStart(4,' ')}</span>${l}`).join('\n')}</pre>
+</body></html>`;
+    emit(50, 'Rendering PDF…');
+    await htmlToPdf(html, output);
+
+  } else {
+    throw new Error(`Code conversion to ${format} is not supported.`);
+  }
+  emit(90, 'Finalizing…');
+}
+
+// ── PPTX Converter ────────────────────────────────────────────────────────────
+async function convertPptx(input, output, format, options, emit) {
+  emit(15, 'Reading PPTX…');
+  const StreamZip = r('node-stream-zip');
+  const { XMLParser } = r('fast-xml-parser');
+  const parser = new XMLParser({ ignoreAttributes: false, attributeNamePrefix: '@_', textNodeName: '#text' });
+
+  const zip = new StreamZip.async({ file: input });
+  const entries = await zip.entries();
+
+  // Find slide files
+  const slideFiles = Object.keys(entries)
+    .filter(n => /^ppt\/slides\/slide\d+\.xml$/i.test(n))
+    .sort((a, b) => {
+      const na = parseInt(a.match(/\d+/)?.[0] || '0');
+      const nb = parseInt(b.match(/\d+/)?.[0] || '0');
+      return na - nb;
+    });
+
+  emit(25, `Found ${slideFiles.length} slide(s)…`);
+
+  // Extract text from each slide
+  const slides = [];
+  for (let i = 0; i < slideFiles.length; i++) {
+    const xmlBuf = await zip.entryData(slideFiles[i]);
+    const xmlStr = xmlBuf.toString('utf-8');
+    const parsed = parser.parse(xmlStr);
+
+    // Recursively extract all <a:t> text nodes
+    const texts = [];
+    function extractText(obj) {
+      if (!obj || typeof obj !== 'object') return;
+      for (const [key, val] of Object.entries(obj)) {
+        if (key === 'a:t') {
+          if (typeof val === 'string' && val.trim()) texts.push(val.trim());
+          else if (typeof val === 'object' && val['#text']) texts.push(String(val['#text']).trim());
+          else if (Array.isArray(val)) val.forEach(v => { if (typeof v === 'string' && v.trim()) texts.push(v.trim()); });
+        } else {
+          if (Array.isArray(val)) val.forEach(v => extractText(v));
+          else extractText(val);
+        }
+      }
+    }
+    extractText(parsed);
+    slides.push({ num: i + 1, texts });
+    emit(25 + Math.round((i / slideFiles.length) * 30), `Processing slide ${i + 1}/${slideFiles.length}…`);
+  }
+  await zip.close();
+
+  if (format === 'txt') {
+    const lines = slides.map(s => `--- Slide ${s.num} ---\n${s.texts.join('\n')}`);
+    fs.writeFileSync(output, lines.join('\n\n'), 'utf-8');
+
+  } else if (format === 'md') {
+    const lines = slides.map(s => `## Slide ${s.num}\n\n${s.texts.join('\n\n')}`);
+    fs.writeFileSync(output, `# ${path.basename(input, path.extname(input))}\n\n${lines.join('\n\n---\n\n')}`, 'utf-8');
+
+  } else if (format === 'html') {
+    const slideHtml = slides.map(s =>
+      `<div class="slide"><div class="slide-num">Slide ${s.num}</div>${s.texts.map(t => `<p>${escHtml(t)}</p>`).join('')}</div>`
+    ).join('\n');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>body{font-family:Arial,sans-serif;max-width:900px;margin:40px auto;background:#f5f5f5;}
+.slide{background:#fff;border-radius:8px;padding:32px;margin:20px 0;box-shadow:0 2px 8px rgba(0,0,0,.1);}
+.slide-num{font-size:12px;color:#999;margin-bottom:12px;text-transform:uppercase;letter-spacing:1px;}
+p{margin:8px 0;line-height:1.6;font-size:15px;}
+h1{text-align:center;color:#333;}
+</style></head><body>
+<h1>${escHtml(path.basename(input, path.extname(input)))}</h1>
+${slideHtml}
+</body></html>`;
+    fs.writeFileSync(output, html, 'utf-8');
+
+  } else if (format === 'pdf') {
+    const slideHtml = slides.map(s =>
+      `<div class="slide"><div class="slide-num">Slide ${s.num}</div>${s.texts.map(t => `<p>${escHtml(t)}</p>`).join('')}</div>`
+    ).join('\n');
+    const html = `<!DOCTYPE html><html><head><meta charset="utf-8">
+<style>body{font-family:Arial,sans-serif;margin:20px;line-height:1.6;}
+.slide{page-break-after:always;border:1px solid #ddd;padding:20px;margin-bottom:20px;}
+.slide-num{font-size:10px;color:#999;margin-bottom:8px;text-transform:uppercase;}
+</style></head><body>${slideHtml}</body></html>`;
+    emit(60, 'Rendering PDF…');
+    await htmlToPdf(html, output);
+
+  } else {
+    throw new Error(`PPTX → ${format} is not supported.`);
+  }
+  emit(90, 'Finalizing…');
+}
+
+// ── PDF to Images ─────────────────────────────────────────────────────────────
+async function pdfToImages(input, outputDir, emit) {
+  emit(10, 'Loading PDF…');
+  const puppeteer = r('puppeteer');
+  const { PDFDocument } = r('pdf-lib');
+  const pdfBytes = fs.readFileSync(input);
+  const pdfDoc = await PDFDocument.load(pdfBytes, { ignoreEncryption: true });
+  const pageCount = pdfDoc.getPageCount();
+  emit(15, `PDF has ${pageCount} page(s). Rendering…`);
+
+  const browser = await puppeteer.launch({ headless: true, args: ['--no-sandbox','--disable-setuid-sandbox'] });
+  try {
+    for (let i = 0; i < pageCount; i++) {
+      emit(15 + Math.round((i / pageCount) * 75), `Rendering page ${i + 1}/${pageCount}…`);
+      // Extract single page PDF
+      const singleDoc = await PDFDocument.create();
+      const [copiedPage] = await singleDoc.copyPages(pdfDoc, [i]);
+      singleDoc.addPage(copiedPage);
+      const singleBytes = await singleDoc.save();
+      const tmpPdf = path.join(outputDir, `_tmp_page_${i}.pdf`);
+      fs.writeFileSync(tmpPdf, singleBytes);
+
+      const page = await browser.newPage();
+      await page.goto(`file://${tmpPdf}`, { waitUntil: 'networkidle0', timeout: 15000 });
+      await page.setViewport({ width: 1240, height: 1754, deviceScaleFactor: 2 });
+      const outImg = path.join(outputDir, `page_${String(i + 1).padStart(3, '0')}.png`);
+      await page.screenshot({ path: outImg, fullPage: true });
+      await page.close();
+      try { fs.unlinkSync(tmpPdf); } catch {}
+    }
+  } finally {
+    await browser.close();
+  }
+  emit(92, 'Finalizing…');
+}
+
+// ── Multi-Image → PDF ─────────────────────────────────────────────────────────
+ipcMain.handle('images:toPdf', async (event, { imagePaths, outputPath }) => {
+  const emit = (pct, msg) => event.sender.send('convert:progress', { percent: pct, message: msg });
+  try {
+    const { PDFDocument } = r('pdf-lib');
+    const sharp = r('sharp');
+    const pdfDoc = await PDFDocument.create();
+    emit(5, `Combining ${imagePaths.length} image(s) into PDF…`);
+    for (let i = 0; i < imagePaths.length; i++) {
+      emit(5 + Math.round((i / imagePaths.length) * 85), `Embedding image ${i + 1}/${imagePaths.length}…`);
+      const imgBuf = await sharp(imagePaths[i], { failOnError: false }).rotate().jpeg({ quality: 95 }).toBuffer();
+      const jpgImg = await pdfDoc.embedJpg(imgBuf);
+      const { width: iw, height: ih } = jpgImg.scale(1);
+      const pageW = 595, pageH = 842, margin = 20;
+      const maxW = pageW - margin * 2, maxH = pageH - margin * 2;
+      const scale = Math.min(maxW / iw, maxH / ih, 1);
+      const dw = iw * scale, dh = ih * scale;
+      const pg = pdfDoc.addPage([pageW, pageH]);
+      pg.drawImage(jpgImg, { x: (pageW - dw) / 2, y: (pageH - dh) / 2, width: dw, height: dh });
+    }
+    emit(92, 'Saving PDF…');
+    fs.writeFileSync(outputPath, await pdfDoc.save());
+    emit(100, 'Done!');
+    return { success: true, outputPath, outputSize: fs.statSync(outputPath).size };
+  } catch (err) {
+    return { error: err.message };
+  }
+});
+
+// ── Text-to-Speech (edge-tts via Python) ─────────────────────────────────────
+async function ensureEdgeTts(pythonPath, emit) {
+  emit('Checking edge-tts installation…');
+  try {
+    await execPromise(`"${pythonPath}" -c "import edge_tts; import pydub"`);
+    return;
+  } catch {
+    emit('Installing edge-tts and pydub (first-time setup)…');
+    await execPromise(`"${pythonPath}" -m pip install --no-cache-dir edge-tts pydub --no-warn-script-location`);
+    await execPromise(`"${pythonPath}" -c "import edge_tts; import pydub"`);
+  }
+}
+
+async function runTTS(inputPath, outputPath, emit, sender) {
+  emit(5, 'Reading input text…');
+  const text = fs.readFileSync(inputPath, 'utf-8').trim();
+  if (!text) throw new Error('Input file is empty.');
+
+  emit(10, 'Setting up Python environment…');
+  const pythonPath = await ensurePython((msg) => sender.send('tts-install-progress', msg));
+  await ensureEdgeTts(pythonPath, (msg) => sender.send('tts-install-progress', msg));
+
+  // Write a temporary Python TTS script to disk
+  const scriptPath = path.join(app.getPath('userData'), 'tts_run.py');
+  const inputTmp   = path.join(app.getPath('userData'), 'tts_input.txt');
+  fs.writeFileSync(inputTmp, text, 'utf-8');
+
+  const ttsScript = `
+import asyncio, edge_tts, tempfile, os, sys
+from pydub import AudioSegment
+
+VOICE = "en-US-ChristopherNeural"
+RATE  = "+0%"
+PITCH = "+0Hz"
+
+async def run():
+    input_path  = sys.argv[1]
+    output_path = sys.argv[2]
+    text = open(input_path, encoding="utf-8").read().strip()
+    if not text:
+        raise ValueError("Empty input")
+    with tempfile.NamedTemporaryFile(suffix=".mp3", delete=False) as f:
+        tmp = f.name
+    try:
+        comm = edge_tts.Communicate(text, voice=VOICE, rate=RATE, pitch=PITCH)
+        await comm.save(tmp)
+        seg = AudioSegment.from_mp3(tmp)
+        seg.normalize().export(output_path, format="mp3", bitrate="192k")
+    finally:
+        try: os.unlink(tmp)
+        except: pass
+
+asyncio.run(run())
+`;
+  fs.writeFileSync(scriptPath, ttsScript, 'utf-8');
+
+  emit(30, 'Synthesising speech with edge-tts…');
+  try {
+    await execPromise(`"${pythonPath}" "${scriptPath}" "${inputTmp}" "${outputPath}"`);
+  } finally {
+    try { fs.unlinkSync(inputTmp); } catch {}
+    try { fs.unlinkSync(scriptPath); } catch {}
+  }
+  emit(90, 'Finalizing…');
+}
+
+ipcMain.handle('file:tts', async (event, filePath) => {
+  const dir  = path.dirname(filePath);
+  const base = path.basename(filePath, path.extname(filePath));
+  const outputPath = path.join(dir, `${base}_speech.mp3`);
+  const emit = (pct, msg) => event.sender.send('convert:progress', { percent: pct, message: msg });
+  try {
+    emit(0, 'Starting TTS…');
+    await runTTS(filePath, outputPath, emit, event.sender);
+    emit(100, 'Done!');
+    return { success: true, outputPath, outputSize: fs.statSync(outputPath).size };
+  } catch (err) {
+    event.sender.send('convert:error', { message: err.message });
+    return { error: err.message };
+  }
+});
+
+ipcMain.on('tts-install-progress', () => {});
