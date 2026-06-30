@@ -596,19 +596,45 @@ function parseSpeedToBytes(str) {
   return u === 'gib' ? v*1073741824 : u === 'mib' ? v*1048576 : u === 'kib' ? v*1024 : v;
 }
 
+// Refresh yt-dlp if the local binary is older than this. YouTube changes
+// frequently, so a stale binary triggers yt-dlp's "older than 90 days" warning
+// and eventually breaks downloads. Keep this well under that 90-day window.
+const YTDLP_STALE_MS = 14 * 24 * 60 * 60 * 1000; // 14 days
+
 async function ensureYtdlp(emit) {
   const ytdlpDir = path.join(app.getPath('userData'), 'bin');
   const ytdlpPath = path.join(ytdlpDir, process.platform === 'win32' ? 'yt-dlp.exe' : 'yt-dlp');
-  if (fs.existsSync(ytdlpPath)) return ytdlpPath;
-  emit({ percent: 0, message: 'Downloading yt-dlp (first time only)\u2026', speed: 0 });
-  fs.mkdirSync(ytdlpDir, { recursive: true });
   const dlUrl = process.platform === 'win32'
     ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp.exe'
     : process.platform === 'darwin'
       ? 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp_macos'
       : 'https://github.com/yt-dlp/yt-dlp/releases/latest/download/yt-dlp';
-  await dlFile(dlUrl, ytdlpPath, (pct) => emit({ percent: pct * 0.05, message: `Downloading yt-dlp: ${Math.round(pct)}%`, speed: 0 }));
-  if (process.platform !== 'win32') fs.chmodSync(ytdlpPath, 0o755);
+
+  const exists = fs.existsSync(ytdlpPath);
+  let isStale = false;
+  if (exists) {
+    try { isStale = (Date.now() - fs.statSync(ytdlpPath).mtimeMs) > YTDLP_STALE_MS; } catch {}
+  }
+
+  // Already have a fresh-enough binary \u2014 use it.
+  if (exists && !isStale) return ytdlpPath;
+
+  // (Re)download the latest release. Write to a temp file then atomically swap,
+  // so an interrupted download can never corrupt a working binary.
+  const tmpPath = ytdlpPath + '.download';
+  try {
+    fs.mkdirSync(ytdlpDir, { recursive: true });
+    emit({ percent: 0, message: exists ? 'Updating yt-dlp\u2026' : 'Downloading yt-dlp (first time only)\u2026', speed: 0 });
+    const verb = exists ? 'Updating' : 'Downloading';
+    await dlFile(dlUrl, tmpPath, (pct) => emit({ percent: pct * 0.05, message: `${verb} yt-dlp: ${Math.round(pct)}%`, speed: 0 }));
+    if (process.platform !== 'win32') fs.chmodSync(tmpPath, 0o755);
+    fs.renameSync(tmpPath, ytdlpPath); // overwrites the old binary
+  } catch (err) {
+    try { if (fs.existsSync(tmpPath)) fs.unlinkSync(tmpPath); } catch {}
+    // Offline or download failed: fall back to the stale binary if we have one,
+    // otherwise there's nothing usable \u2014 surface the error.
+    if (!exists) throw err;
+  }
   return ytdlpPath;
 }
 

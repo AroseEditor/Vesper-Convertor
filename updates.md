@@ -1,5 +1,14 @@
 # Contrary Convertor — Updates
 
+## v1.9.1 (June 30, 2026)
+
+### yt-dlp Auto-Refresh (bug fix)
+- Fixed the "Your yt-dlp version is older than 90 days!" warning during YouTube/media downloads
+- yt-dlp was downloaded once and cached forever, so the binary went stale and would eventually fail downloads
+- The app now auto-updates yt-dlp when the local binary is older than 14 days, before the next download
+- Atomic swap (temp file + rename) so an interrupted update can never corrupt a working binary
+- Offline-safe: if the refresh can't reach the network, it falls back to the existing binary
+
 ## v1.9.0 (May 28, 2026)
 
 ### Photo(s) → PDF / PDF → Photos
