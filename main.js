@@ -413,18 +413,34 @@ ipcMain.handle('download:start', async (event, { url, savePath, threads, quality
   } catch (err) { return { error: err.message }; }
 });
 
-// Cookies (Netscape cookies.txt) for login-gated sites (Instagram, etc.).
-// Once pasted, they're saved here and reused automatically for later downloads.
-function getSavedCookiesPath() {
-  return path.join(app.getPath('userData'), 'yt-cookies.txt');
+// Cookies (Netscape cookies.txt) for login-gated sites — stored PER PLATFORM so
+// Instagram cookies are never sent to YouTube (and vice-versa). Once pasted for a
+// platform, they're saved and reused automatically for later downloads from it.
+function getCookiePlatform(url) {
+  const u = String(url || '').toLowerCase();
+  if (/instagram\.com/.test(u))            return 'instagram';
+  if (/youtube\.com|youtu\.be/.test(u))    return 'youtube';
+  if (/tiktok\.com/.test(u))               return 'tiktok';
+  if (/twitter\.com|x\.com/.test(u))       return 'twitter';
+  if (/facebook\.com/.test(u))             return 'facebook';
+  if (/reddit\.com/.test(u))               return 'reddit';
+  if (/vimeo\.com/.test(u))                return 'vimeo';
+  if (/twitch\.tv/.test(u))                return 'twitch';
+  if (/soundcloud\.com/.test(u))           return 'soundcloud';
+  try { return new URL(url).hostname.replace(/^www\./, '').replace(/[^a-z0-9.-]/gi, '_'); }
+  catch { return 'default'; }
+}
+
+function getSavedCookiesPath(url) {
+  return path.join(app.getPath('userData'), `cookies-${getCookiePlatform(url)}.txt`);
 }
 
 async function downloadWithYtdlp(url, savePath, emit, dl, quality, cookies) {
   const ytdlpPath = await ensureYtdlp(emit);
   const ffmpegBin  = getFFmpegPath();
 
-  // Persist freshly-pasted cookies; reuse previously saved ones automatically.
-  const cookiesPath = getSavedCookiesPath();
+  // Persist freshly-pasted cookies for THIS platform; reuse saved ones automatically.
+  const cookiesPath = getSavedCookiesPath(url);
   if (cookies && cookies.trim()) {
     try { fs.writeFileSync(cookiesPath, cookies.trim() + '\n', 'utf8'); } catch {}
   }

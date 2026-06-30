@@ -240,9 +240,9 @@ async function startDownload() {
     const quality = (isSpotify || dlFormat === 'mp3') ? 'audio' : state.ytdlpQuality;
     let result = await window.electronAPI.downloadUrl({ url, savePath, threads: state.threads, quality });
 
-    // Login-gated site (e.g. Instagram) → ask the user to paste their cookies.txt, then retry once.
+    // Login-gated site (Instagram, YouTube, etc.) → ask for cookies.txt, then retry once.
     if (result && result.needsCookies) {
-      const cookies = await promptForCookies();
+      const cookies = await promptForCookies(siteLabel(url));
       if (cookies) {
         dlProgressBar.style.width = '5%';
         dlProgressPct.textContent = '5%';
@@ -280,21 +280,35 @@ async function startDownload() {
   window.electronAPI.removeDownloadListener();
 }
 
+// Friendly platform name from a URL, for the cookies modal.
+function siteLabel(url) {
+  const u = (url || '').toLowerCase();
+  if (u.includes('instagram.com'))                      return 'Instagram';
+  if (u.includes('youtube.com') || u.includes('youtu.be')) return 'YouTube';
+  if (u.includes('tiktok.com'))                         return 'TikTok';
+  if (u.includes('twitter.com') || u.includes('x.com')) return 'X / Twitter';
+  if (u.includes('facebook.com'))                       return 'Facebook';
+  if (u.includes('reddit.com'))                         return 'Reddit';
+  if (u.includes('vimeo.com'))                          return 'Vimeo';
+  if (u.includes('twitch.tv'))                          return 'Twitch';
+  try { return new URL(url).hostname.replace(/^www\./, ''); } catch { return 'This site'; }
+}
+
 // Modal: ask the user to paste their cookies.txt to authenticate login-gated downloads.
 // Resolves with the pasted cookie text, or null if cancelled.
-function promptForCookies() {
+function promptForCookies(siteName = 'This site') {
   return new Promise((resolve) => {
     const overlay = document.createElement('div');
     overlay.className = 'cookie-modal-overlay';
     overlay.innerHTML = `
       <div class="cookie-modal">
-        <h3>🔒 This site needs your login</h3>
-        <p>Instagram (and some other sites) block anonymous downloads. Paste your
+        <h3>🔒 ${siteName} needs your login</h3>
+        <p><b>${siteName}</b> blocks anonymous downloads. Paste your
         <b>cookies.txt</b> to download using your own logged-in session.
-        Nothing is uploaded — your cookies stay on this PC.</p>
+        Cookies are saved per-site and reused next time — nothing is uploaded.</p>
         <ol>
           <li>Install the free <a href="#" id="cookie-ext-link">“Get cookies.txt LOCALLY”</a> extension</li>
-          <li>Open the site (e.g. <b>instagram.com</b>) while logged in, then click the extension</li>
+          <li>Open <b>${siteName}</b> while logged in, then click the extension</li>
           <li>Click <b>Export</b> to copy the cookies</li>
           <li>Paste them below and click Continue</li>
         </ol>

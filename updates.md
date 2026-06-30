@@ -1,5 +1,14 @@
 # Contrary Convertor — Updates
 
+## v1.10.1 (June 30, 2026)
+
+### Per-Platform Cookies (fix: cookies now persist)
+- Cookies are now saved **separately per platform** (Instagram, YouTube, TikTok, etc.) instead of one shared file
+- Fixes the bug where pasting YouTube cookies wiped Instagram's (and vice-versa), so they appeared to "not save"
+- Each site keeps its own saved login and reuses it automatically on the next download — no re-pasting
+- The cookies popup now appears for **any** platform that hits a login error (YouTube, TikTok, etc.), not just Instagram, and names the actual site
+- Instagram cookies are no longer sent to YouTube requests, which was causing extra errors
+
 ## v1.10.0 (June 30, 2026)
 
 ### Instagram / Login-Gated Downloads (cookies.txt)
