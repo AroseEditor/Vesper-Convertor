@@ -1,17 +1,32 @@
 {
   "permissions": {
     "allow": [
-      "Bash(dir /s /b)",
-      "Bash(powershell -Command \"Get-ChildItem -Path . -Depth 2 -Directory | Select-Object FullName\")",
-      "Bash(powershell -Command \"Get-Content main.js -TotalCount 20 | Select-Object -Last 5\")",
-      "Bash(powershell -Command \"\\(Get-Content package.json | ConvertFrom-Json\\).dependencies | Get-Member -MemberType NoteProperty | Select-Object -ExpandProperty Name | Sort-Object\")",
+      "Bash",
+      "Read",
+      "Edit",
+      "Write",
+      "Glob",
+      "Grep",
       "Skill(update-config)",
-      "Skill(update-config:*)",
-      "Bash(npm install *)",
-      "Bash(Test-Path \"c:\\\\Users\\\\iusem\\\\Downloads\\\\My Work\\\\Convertor\\\\updates.md\")",
-      "Bash(git add *)",
-      "Bash(git commit -m ' *)",
-      "Bash(git push *)"
+      "Skill(update-config:*)"
+    ],
+    "deny": [
+      "Bash(rm *)",
+      "Bash(rm)",
+      "Bash(rmdir *)",
+      "Bash(rmdir)",
+      "Bash(unlink *)",
+      "Bash(del *)",
+      "Bash(del)",
+      "Bash(erase *)",
+      "Bash(rd *)",
+      "Bash(Remove-Item *)",
+      "Bash(Remove-Item:*)",
+      "Bash(ri *)",
+      "Bash(*rm -rf*)",
+      "Bash(* rm *)",
+      "Bash(*Remove-Item*)",
+      "Bash(*del *)"
     ]
   }
 }
