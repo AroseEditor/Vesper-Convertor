@@ -982,6 +982,7 @@ ipcMain.handle('bg:applyWithRefine', async (_event, { imagePath, maskDataUrl, fe
 function detectCategory(ext) {
   const maps = {
     image:        ['jpg','jpeg','png','webp','avif','gif','tiff','tif','bmp','svg','ico','heic'],
+    cursor:       ['cur','ani'],
     video:        ['mp4','mov','avi','mkv','webm','flv','wmv','m4v'],
     audio:        ['mp3','wav','ogg','flac','aac','m4a','wma','opus'],
     document:     ['pdf','docx','doc','odt','pptx','ppt'],
@@ -1038,6 +1039,7 @@ function getOutputFormats(category, ext) {
     code:         ['pdf','html','txt','tts'],
     font:         ['ttf','otf','extract-text'],
     '3d':         ['glb','obj','fbx'],
+    cursor:       ['png'],
   };
 
   if (category === 'document') {
@@ -1118,7 +1120,8 @@ ipcMain.handle('file:detect', async (_event, filePath) => {
       if (res) { mimeType = res.mime; detectedExt = res.ext; }
     } catch (_) { /* fall through */ }
 
-    const finalExt = detectedExt || ext;
+    // Cursors share magic bytes with .ico, so trust the real extension for them.
+    const finalExt = (ext === 'cur' || ext === 'ani') ? ext : (detectedExt || ext);
     const category = detectCategory(finalExt);
 
     // Probe media files for source settings
@@ -1153,6 +1156,7 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
   const isUpscale    = outputFormat === 'upscale2x' || outputFormat === 'upscale4x';
   const isTTS        = outputFormat === 'tts';
   const isPdfImages  = outputFormat === 'images';
+  const isCursor     = detectCategory(ext) === 'cursor';
   const isArchiveExt = outputFormat === 'extract' && ['zip','7z','rar','gz','bz2','xz','tar','tgz','tbz2','txz','jar'].includes(ext);
 
   let outputPath;
@@ -1168,6 +1172,10 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
     outputPath = path.join(dir, `${base}_speech.mp3`);
   } else if (isPdfImages) {
     outputPath = path.join(dir, `${base}_images`);
+    fs.mkdirSync(outputPath, { recursive: true });
+  } else if (isCursor) {
+    // All PNGs for this cursor go into a subfolder named after the cursor.
+    outputPath = path.join(dir, base);
     fs.mkdirSync(outputPath, { recursive: true });
   } else if (isExtract || isArchiveExt) {
     outputPath = path.join(dir, `${base}_${outputFormat.replace(/-/g,'_')}`);
@@ -1193,6 +1201,8 @@ ipcMain.handle('file:convert', async (event, { filePath, outputFormat, options }
       await runTTS(filePath, outputPath, emit, event.sender);
     } else if (isPdfImages) {
       await pdfToImages(filePath, outputPath, emit);
+    } else if (isCursor) {
+      await convertCursor(filePath, outputPath, base, ext, emit);
     } else if (outputFormat === 'extract-text') {
       await extractText(filePath, outputPath, ext, emit, options);
     } else if (outputFormat === 'extract-images') {
@@ -1340,6 +1350,178 @@ async function fixForPlatform(input, output, options, emit) {
       .on('end', resolve)
       .save(output);
   });
+}
+
+// ── Cursor (.cur / .ani) → transparent PNGs ──────────────────────────────────
+// .cur is the same container as .ico; .ani is a RIFF wrapper holding icon frames.
+// We decode each embedded image (32/24/8/4/1-bpp DIB or embedded PNG) into RGBA
+// with the transparency mask applied, so the background comes out transparent.
+
+// Decode a DIB (BMP) image out of an ICO/CUR directory entry into an RGBA buffer.
+async function cursorDibToPng(dib, sharpMod) {
+  const headerSize = dib.readUInt32LE(0);
+  const width  = dib.readInt32LE(4);
+  const height = Math.abs(dib.readInt32LE(8)) / 2; // height field = XOR + AND mask
+  const bitCount = dib.readUInt16LE(14);
+  const colorsUsed = dib.readUInt32LE(32);
+  if (!width || !height) return null;
+
+  let paletteCount = bitCount <= 8 ? (colorsUsed || (1 << bitCount)) : 0;
+  const paletteOffset = headerSize;
+  const palette = [];
+  for (let i = 0; i < paletteCount; i++) {
+    const o = paletteOffset + i * 4;
+    palette.push([dib[o + 2], dib[o + 1], dib[o + 0]]); // stored BGRA → RGB
+  }
+
+  const xorOffset  = paletteOffset + paletteCount * 4;
+  const xorRowSize = Math.floor((bitCount * width + 31) / 32) * 4; // 4-byte padded
+  const andRowSize = Math.floor((width + 31) / 32) * 4;
+  const andOffset  = xorOffset + xorRowSize * height;
+
+  // AND mask (1 = transparent). Rows are bottom-up, same as the XOR bitmap.
+  const andBit = (x, srcRow) => {
+    const byteIndex = andOffset + srcRow * andRowSize + (x >> 3);
+    if (byteIndex >= dib.length) return 0;
+    return (dib[byteIndex] >> (7 - (x & 7))) & 1;
+  };
+
+  const out = Buffer.alloc(width * height * 4);
+  for (let y = 0; y < height; y++) {
+    const srcRow = height - 1 - y; // bottom-up
+    for (let x = 0; x < width; x++) {
+      let r = 0, g = 0, b = 0, a = 255;
+      if (bitCount === 32) {
+        const o = xorOffset + srcRow * xorRowSize + x * 4;
+        b = dib[o]; g = dib[o + 1]; r = dib[o + 2]; a = dib[o + 3];
+      } else if (bitCount === 24) {
+        const o = xorOffset + srcRow * xorRowSize + x * 3;
+        b = dib[o]; g = dib[o + 1]; r = dib[o + 2];
+        a = andBit(x, srcRow) ? 0 : 255;
+      } else if (bitCount === 8) {
+        const p = palette[dib[xorOffset + srcRow * xorRowSize + x]] || [0, 0, 0];
+        [r, g, b] = p; a = andBit(x, srcRow) ? 0 : 255;
+      } else if (bitCount === 4) {
+        const byte = dib[xorOffset + srcRow * xorRowSize + (x >> 1)];
+        const idx = (x & 1) ? (byte & 0x0F) : (byte >> 4);
+        const p = palette[idx] || [0, 0, 0];
+        [r, g, b] = p; a = andBit(x, srcRow) ? 0 : 255;
+      } else if (bitCount === 1) {
+        const bit = (dib[xorOffset + srcRow * xorRowSize + (x >> 3)] >> (7 - (x & 7))) & 1;
+        const p = palette[bit] || [0, 0, 0];
+        [r, g, b] = p; a = andBit(x, srcRow) ? 0 : 255;
+      } else {
+        return null; // unsupported bit depth
+      }
+      const di = (y * width + x) * 4;
+      out[di] = r; out[di + 1] = g; out[di + 2] = b; out[di + 3] = a;
+    }
+  }
+
+  // Some 32-bpp cursors carry an all-zero alpha channel — fall back to the AND mask.
+  if (bitCount === 32) {
+    let anyAlpha = false;
+    for (let i = 3; i < out.length; i += 4) { if (out[i] !== 0) { anyAlpha = true; break; } }
+    if (!anyAlpha) {
+      for (let y = 0; y < height; y++)
+        for (let x = 0; x < width; x++)
+          out[(y * width + x) * 4 + 3] = andBit(x, height - 1 - y) ? 0 : 255;
+    }
+  }
+
+  const buffer = await sharpMod(out, { raw: { width, height, channels: 4 } }).png().toBuffer();
+  return { buffer, width, height };
+}
+
+// Decode all images from an ICO/CUR buffer → [{ width, height, png }]
+async function decodeIconImages(buf, sharpMod) {
+  if (buf.length < 6) return [];
+  const count = buf.readUInt16LE(4);
+  const images = [];
+  for (let i = 0; i < count; i++) {
+    const e = 6 + i * 16;
+    if (e + 16 > buf.length) break;
+    let w = buf.readUInt8(e) || 256;
+    let h = buf.readUInt8(e + 1) || 256;
+    const size   = buf.readUInt32LE(e + 8);
+    const offset = buf.readUInt32LE(e + 12);
+    const data = buf.subarray(offset, offset + size);
+    if (data.length < 8) continue;
+
+    // Embedded PNG (0x89 'PNG')
+    if (data[0] === 0x89 && data[1] === 0x50 && data[2] === 0x4E && data[3] === 0x47) {
+      try {
+        const meta = await sharpMod(data).metadata();
+        images.push({ width: meta.width || w, height: meta.height || h, png: await sharpMod(data).ensureAlpha().png().toBuffer() });
+      } catch {}
+      continue;
+    }
+    try {
+      const dec = await cursorDibToPng(data, sharpMod);
+      if (dec) images.push({ width: dec.width, height: dec.height, png: dec.buffer });
+    } catch {}
+  }
+  return images;
+}
+
+// Walk a RIFF (.ani) container and collect the embedded 'icon' chunks (each a .cur).
+function parseAniFrames(buf) {
+  if (buf.length < 12 || buf.toString('ascii', 0, 4) !== 'RIFF') return [];
+  const frames = [];
+  const walk = (start, end) => {
+    let off = start;
+    while (off + 8 <= end) {
+      const id = buf.toString('ascii', off, off + 4);
+      const size = buf.readUInt32LE(off + 4);
+      const dataStart = off + 8;
+      if (id === 'RIFF' || id === 'LIST') {
+        walk(dataStart + 4, Math.min(dataStart + size, end)); // skip 4-byte form/list type
+      } else if (id === 'icon') {
+        frames.push(buf.subarray(dataStart, dataStart + size));
+      }
+      off = dataStart + size + (size & 1); // chunks are word-aligned
+    }
+  };
+  walk(0, buf.length);
+  return frames;
+}
+
+async function convertCursor(input, outputDir, base, ext, emit) {
+  const sharpMod = r('sharp');
+  const buf = fs.readFileSync(input);
+  emit(10, 'Reading cursor…');
+
+  let written = 0;
+  if (ext === 'ani') {
+    const frames = parseAniFrames(buf);
+    if (!frames.length) throw new Error('No frames found in this .ani cursor.');
+    for (let f = 0; f < frames.length; f++) {
+      const images = await decodeIconImages(frames[f], sharpMod);
+      images.sort((a, b) => b.width - a.width); // largest image per frame
+      const img = images[0];
+      if (!img) continue;
+      const fn = `${base}_frame${String(f + 1).padStart(2, '0')}_${img.width}bit.png`;
+      fs.writeFileSync(path.join(outputDir, fn), img.png);
+      written++;
+      emit(10 + Math.round(((f + 1) / frames.length) * 85), `Frame ${f + 1}/${frames.length}`);
+    }
+  } else {
+    const images = await decodeIconImages(buf, sharpMod);
+    if (!images.length) throw new Error('No images could be decoded from this cursor.');
+    const seen = {};
+    for (const img of images) {
+      // Name each size as (cursorname)_<width>bit.png; disambiguate duplicate sizes.
+      const key = img.width;
+      const suffix = seen[key] ? `_${seen[key] + 1}` : '';
+      seen[key] = (seen[key] || 0) + 1;
+      const fn = `${base}_${img.width}bit${suffix}.png`;
+      fs.writeFileSync(path.join(outputDir, fn), img.png);
+      written++;
+    }
+  }
+  if (!written) throw new Error('Cursor contained no convertible images.');
+  emit(100, `Extracted ${written} PNG${written > 1 ? 's' : ''}`);
+  return written;
 }
 
 // ── Image ─────────────────────────────────────────────────────────────────────

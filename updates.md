@@ -1,5 +1,14 @@
 # Contrary Convertor — Updates
 
+## v1.11.0 (July 12, 2026)
+
+### Cursor → PNG (.cur / .ani)
+- Convert Windows cursors to transparent PNGs — the cursor mask is decoded so the background comes out fully transparent
+- Every size embedded in the cursor is exported (e.g. `arrow_128bit.png`, `arrow_64bit.png`, `arrow_32bit.png`)
+- All PNGs are saved into a subfolder named after the cursor
+- Animated cursors (`.ani`) export one PNG per frame (`arrow_frame01_64bit.png`, …)
+- Handles 32/24/8/4/1-bit cursor images and cursors that embed PNGs directly
+
 ## v1.10.1 (June 30, 2026)
 
 ### Per-Platform Cookies (fix: cookies now persist)

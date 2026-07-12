@@ -1,6 +1,6 @@
 {
   "name": "contrary-convertor",
-  "version": "1.10.1",
+  "version": "1.11.0",
   "description": "Local-first file conversion. 50+ formats. Zero uploads. Zero limits.",
   "author": "Ayush.ue5",
   "main": "main.js",
