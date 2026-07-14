@@ -53,7 +53,7 @@ function createMainWindow() {
 app.whenReady().then(() => {
   createMainWindow();
 
-  // Handle file passed via Windows context menu (e.g. "Convert with Contrary Convertor")
+  // Handle file passed via Windows context menu (e.g. "Convert with Vesper Convertor")
   const fileArg = process.argv.slice(app.isPackaged ? 1 : 2).find(a => {
     try { return fs.existsSync(a) && fs.statSync(a).isFile(); } catch { return false; }
   });
@@ -75,7 +75,7 @@ app.on('activate', () => { if (!mainWindow) createMainWindow(); });
 // ─── Custom Auto-Update via GitHub Releases API ──────────────────────────────
 ipcMain.handle('app:version', () => app.getVersion());
 const REPO_OWNER = 'AroseEditor';
-const REPO_NAME  = 'Contrary-Convertor';
+const REPO_NAME  = 'Vesper-Convertor';
 const CURRENT_VERSION = app.getVersion(); // reads from package.json
 
 function compareVersions(a, b) {
@@ -95,7 +95,7 @@ function githubGet(urlPath) {
     const options = {
       hostname: 'api.github.com',
       path: urlPath,
-      headers: { 'User-Agent': 'Contrary-Convertor-Updater' },
+      headers: { 'User-Agent': 'Vesper-Convertor-Updater' },
     };
     https.get(options, (res) => {
       // Handle redirects
@@ -104,7 +104,7 @@ function githubGet(urlPath) {
         const redirOptions = {
           hostname: redirectUrl.hostname,
           path: redirectUrl.pathname + redirectUrl.search,
-          headers: { 'User-Agent': 'Contrary-Convertor-Updater' },
+          headers: { 'User-Agent': 'Vesper-Convertor-Updater' },
         };
         https.get(redirOptions, (res2) => {
           let data = '';
@@ -167,7 +167,7 @@ async function checkForUpdates() {
 function downloadFile(url, destPath, onProgress) {
   return new Promise((resolve, reject) => {
     const doDownload = (downloadUrl) => {
-      https.get(downloadUrl, { headers: { 'User-Agent': 'Contrary-Convertor-Updater' } }, (res) => {
+      https.get(downloadUrl, { headers: { 'User-Agent': 'Vesper-Convertor-Updater' } }, (res) => {
         // Follow redirects (GitHub uses them for asset downloads)
         if (res.statusCode === 301 || res.statusCode === 302) {
           return doDownload(res.headers.location);
@@ -211,7 +211,7 @@ ipcMain.on('update:check', () => {
 ipcMain.on('update:download', async (_event, downloadUrl) => {
   try {
     const ext = process.platform === 'win32' ? '.exe' : (process.platform === 'darwin' ? '.dmg' : '.AppImage');
-    const tmpPath = path.join(app.getPath('temp'), `ContraryConvertor_Update${ext}`);
+    const tmpPath = path.join(app.getPath('temp'), `VesperConvertor_Update${ext}`);
 
     await downloadFile(downloadUrl, tmpPath, (pct) => {
       if (mainWindow) mainWindow.webContents.send('update:progress', pct);
@@ -536,7 +536,7 @@ async function ensureSpotdl(emit) {
   for (const cmd of ['spotdl', 'spotdl.exe']) {
     try {
       execSync(`${cmd} --version`, { stdio: 'pipe' });
-      return cmd;
+      return { isModule: false, exe: cmd };
     } catch {}
   }
 
@@ -550,20 +550,20 @@ async function ensureSpotdl(emit) {
     throw new Error(`Failed to install spotdl: ${err.message}`);
   }
 
-  // After pip install, spotdl is available as a module
-  return `"${pythonPath}" -m spotdl`;
+  // After pip install, run it as "python -m spotdl". Return the exe path as-is —
+  // the caller passes it to spawn() directly, so paths with spaces stay intact.
+  return { isModule: true, exe: pythonPath };
 }
 
 async function downloadWithSpotdl(url, savePath, emit, dl) {
   emit({ percent: 2, message: 'Checking spotdl…', speed: 0 });
-  const spotdlCmd = await ensureSpotdl(emit);
+  const spot = await ensureSpotdl(emit);
   const ffmpegBin = getFFmpegPath();
 
   emit({ percent: 15, message: 'Starting Spotify download…', speed: 0 });
   return new Promise((resolve, reject) => {
     // spotdl downloads to cwd by default; output mp3 quality
-    const isModule = spotdlCmd.includes('-m spotdl');
-    let args, proc;
+    let proc;
 
     const spotArgs = [
       'download', url,
@@ -573,14 +573,11 @@ async function downloadWithSpotdl(url, savePath, emit, dl) {
       '--ffmpeg', ffmpegBin,
     ];
 
-    if (isModule) {
-      // "python -m spotdl" — need to parse the command string
-      const parts = spotdlCmd.replace(/"/g, '').split(' ');
-      const pyExe = parts[0];
-      args = ['-m', 'spotdl', ...spotArgs];
-      proc = spawn(pyExe, args, { cwd: savePath, shell: false });
+    if (spot.isModule) {
+      // "python -m spotdl …" — exe path is passed to spawn intact (handles spaces).
+      proc = spawn(spot.exe, ['-m', 'spotdl', ...spotArgs], { cwd: savePath, shell: false });
     } else {
-      proc = spawn(spotdlCmd, spotArgs, { cwd: savePath, shell: false });
+      proc = spawn(spot.exe, spotArgs, { cwd: savePath, shell: false });
     }
 
     dl.proc = proc;
@@ -683,7 +680,7 @@ function dlFile(url, dest, onProgress) {
     const https = require('https'), http = require('http');
     const doRequest = (u) => {
       const mod = u.startsWith('https') ? https : http;
-      mod.get(u, { headers: { 'User-Agent': 'ContraryConvertor/1.0' } }, (res) => {
+      mod.get(u, { headers: { 'User-Agent': 'Vesper-Convertor/1.0' } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) { doRequest(res.headers.location); return; }
         if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
         const totalBytes = parseInt(res.headers['content-length'] || '0', 10);
@@ -726,7 +723,7 @@ async function downloadDirect(url, savePath, threads, emit, dl) {
     chunkPromises.push(new Promise((resolve, reject) => {
       const doReq = (u) => {
         const mod = u.startsWith('https') ? https : http;
-        const req = mod.get(u, { headers: { 'Range': `bytes=${start}-${end}`, 'User-Agent': 'ContraryConvertor/1.0' } }, (res) => {
+        const req = mod.get(u, { headers: { 'Range': `bytes=${start}-${end}`, 'User-Agent': 'Vesper-Convertor/1.0' } }, (res) => {
           if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) { doReq(res.headers.location); return; }
           const ws = fs.createWriteStream(tmpFile);
           res.on('data', (chunk) => {
@@ -765,7 +762,7 @@ async function singleThreadDownload(url, outputPath, totalSize, emit, dl) {
     let downloaded = 0, startTime = Date.now();
     const doReq = (u) => {
       const mod = u.startsWith('https') ? https : http;
-      const req = mod.get(u, { headers: { 'User-Agent': 'ContraryConvertor/1.0' } }, (res) => {
+      const req = mod.get(u, { headers: { 'User-Agent': 'Vesper-Convertor/1.0' } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) { doReq(res.headers.location); return; }
         if (res.statusCode !== 200) { reject(new Error(`HTTP ${res.statusCode}`)); return; }
         const total = parseInt(res.headers['content-length'] || totalSize || '0', 10);
@@ -794,7 +791,7 @@ function getUrlInfo(url) {
   return new Promise((resolve, reject) => {
     const doReq = (u) => {
       const mod = u.startsWith('https') ? https : http;
-      const req = mod.request(u, { method: 'HEAD', headers: { 'User-Agent': 'ContraryConvertor/1.0' } }, (res) => {
+      const req = mod.request(u, { method: 'HEAD', headers: { 'User-Agent': 'Vesper-Convertor/1.0' } }, (res) => {
         if (res.statusCode >= 300 && res.statusCode < 400 && res.headers.location) { doReq(res.headers.location); return; }
         let fileName = null;
         const cd = res.headers['content-disposition'];
@@ -2736,7 +2733,7 @@ async function glbToObj(input, output, srcExt, emit) {
 
   emit(50, 'Extracting mesh data…');
 
-  let objContent = '# Exported by Contrary Convertor\n';
+  let objContent = '# Exported by Vesper Convertor\n';
   let vertexOffset = 1;
 
   if (!jsonChunk.meshes || !jsonChunk.meshes.length) {

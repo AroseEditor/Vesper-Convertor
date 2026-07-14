@@ -1,6 +1,6 @@
 @echo off
 setlocal enabledelayedexpansion
-title Contrary Convertor - Build Release
+title Vesper Convertor - Build Release
 
 cls
 echo.

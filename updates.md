@@ -1,4 +1,29 @@
-# Contrary Convertor — Updates
+# Vesper Convertor — Updates
+
+## v2.00.0 (July 14, 2026) — 🌒 Meet Vesper
+
+**Contrary Convertor is dead. Long live Vesper Convertor.**
+
+We had a fight. Contrary lost. So the whole app is now **Vesper Convertor** — same
+local-first, zero-upload, zero-limit downloader and converter, new name, new soul.
+Fuck Contrary.
+
+### Full Rebrand
+- Renamed everywhere: app name, window title, installer, uninstaller, app ID, and the GitHub repo → **Vesper Convertor**
+- New installer/uninstaller sidebar art in the dark-red Vesper theme
+- Auto-updater now points at the renamed repo (`AroseEditor/Vesper-Convertor`)
+- Not a single "Contrary" left anywhere in the codebase
+
+### Spotify Downloads Fixed (spotdl)
+- Fixed Spotify downloads failing to even start
+- Root cause: the Python path was being split on spaces, so any install path with a space (like the app's own data folder) silently truncated the command and spotdl never ran
+- spotdl is now launched with the full path intact — Spotify tracks, albums, and playlists download as MP3 @ 320k again
+
+### Everything from 1.x carries over
+- Cursor → PNG, per-platform cookies, yt-dlp auto-refresh, and all conversions are unchanged and still here.
+
+### New thing:
+- We are working on Vesper Downloader a completely new but good project. Pseudo - Piracy tool. vesperdownloader.online is the site. Check it out.
 
 ## v1.11.0 (July 12, 2026)
 
@@ -45,7 +70,7 @@
 - Multi-image → single PDF: combine multiple photos into one PDF document
 
 ### Windows Context Menu Integration
-- Installer registers "Convert with Contrary Convertor" in the Windows right-click menu for all file types
+- Installer registers "Convert with Vesper Convertor" in the Windows right-click menu for all file types
 - Opening a file via context menu automatically loads it in the app ready for conversion
 - Uninstaller cleanly removes the registry entries
 
@@ -192,7 +217,7 @@
 
 ---
 
-# Contrary Convertor — Updates (April 13, 2026)
+# Vesper Convertor — Updates (April 13, 2026)
 
 ## 🎨 UI Overhaul
 - Complete redesign with **red + black gradient** aesthetic

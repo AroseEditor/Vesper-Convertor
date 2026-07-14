@@ -1,4 +1,4 @@
-# ◈ Contrary Convertor
+# ◈ Vesper Convertor
 
 > Local-first file conversion, download, and post-processing. 50+ formats. Zero uploads. Zero limits.
 
@@ -10,7 +10,7 @@
   <img src="https://img.shields.io/badge/AI-on--device-blueviolet?style=flat-square"/>
 </p>
 
-Contrary Convertor is a **free, open-source desktop app** that converts, downloads, and post-processes files completely locally — no cloud, no subscriptions, no file size caps, no account. Drop in a file, pick an output format, convert. That's it.
+Vesper Convertor is a **free, open-source desktop app** that converts, downloads, and post-processes files completely locally — no cloud, no subscriptions, no file size caps, no account. Drop in a file, pick an output format, convert. That's it.
 
 ---
 
@@ -18,9 +18,9 @@ Contrary Convertor is a **free, open-source desktop app** that converts, downloa
 
 | Platform | File | Link |
 |----------|------|------|
-| 🪟 **Windows** | `.exe` installer (NSIS) | [**→ Releases**](https://github.com/AroseEditor/Contrary-Convertor/releases/latest) |
-| 🍎 **macOS** | `.dmg` disk image | [**→ Releases**](https://github.com/AroseEditor/Contrary-Convertor/releases/latest) |
-| 🐧 **Linux** | `.AppImage` (portable) | [**→ Releases**](https://github.com/AroseEditor/Contrary-Convertor/releases/latest) |
+| 🪟 **Windows** | `.exe` installer (NSIS) | [**→ Releases**](https://github.com/AroseEditor/Vesper-Convertor/releases/latest) |
+| 🍎 **macOS** | `.dmg` disk image | [**→ Releases**](https://github.com/AroseEditor/Vesper-Convertor/releases/latest) |
+| 🐧 **Linux** | `.AppImage` (portable) | [**→ Releases**](https://github.com/AroseEditor/Vesper-Convertor/releases/latest) |
 
 > No installation required for AppImage — just `chmod +x` and run.  
 > Windows installer bundles everything. Double-click and go.
@@ -188,8 +188,8 @@ Open with the **⚙ gear icon** in the title bar:
 ## 🚀 Run from Source
 
 ```bash
-git clone https://github.com/AroseEditor/Contrary-Convertor.git
-cd Contrary-Convertor
+git clone https://github.com/AroseEditor/Vesper-Convertor.git
+cd Vesper-Convertor
 npm install --legacy-peer-deps
 npm start
 ```

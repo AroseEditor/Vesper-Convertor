@@ -1,12 +1,12 @@
 {
-  "name": "contrary-convertor",
-  "version": "1.11.0",
+  "name": "Vesper-Convertor",
+  "version": "2.00.0",
   "description": "Local-first file conversion. 50+ formats. Zero uploads. Zero limits.",
   "author": "Ayush.ue5",
   "main": "main.js",
   "repository": {
     "type": "git",
-    "url": "https://github.com/AroseEditor/Contrary-Convertor.git"
+    "url": "https://github.com/AroseEditor/Vesper-Convertor.git"
   },
   "scripts": {
     "start": "electron .",
@@ -44,15 +44,15 @@
     "electron-builder": "^26.0.0"
   },
   "build": {
-    "appId": "com.contraryconvertor.app",
+    "appId": "com.vesperconvertor.app",
     "publish": [
       {
         "provider": "github",
         "owner": "AroseEditor",
-        "repo": "Contrary-Convertor"
+        "repo": "Vesper-Convertor"
       }
     ],
-    "productName": "Contrary Convertor",
+    "productName": "Vesper Convertor",
     "copyright": "Copyright © 2026 Ayush.ue5",
     "icon": "assets/icon.png",
     "asar": true,
@@ -75,7 +75,7 @@
     "win": {
       "target": "nsis",
       "icon": "assets/icon.ico",
-      "legalTrademarks": "Contrary Convertor by Ayush.ue5"
+      "legalTrademarks": "Vesper Convertor by Ayush.ue5"
     },
     "nsis": {
       "oneClick": true,

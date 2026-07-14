@@ -24,7 +24,7 @@ async function go() {
     </defs>
     <rect width="${sW}" height="${sH}" fill="url(#bg)"/>
     <rect x="160" y="0" width="2" height="${sH}" fill="url(#line)"/>
-    <text x="82" y="40" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" letter-spacing="3" fill="#ff4d4d">CONTRARY</text>
+    <text x="82" y="40" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" letter-spacing="3" fill="#ff4d4d">VESPER</text>
     <text x="82" y="56" text-anchor="middle" font-family="Arial,sans-serif" font-size="11" font-weight="bold" letter-spacing="3" fill="#ff4d4d">CONVERTOR</text>
     <line x1="40" y1="68" x2="124" y2="68" stroke="#990000" stroke-width="1"/>
     <text x="82" y="84" text-anchor="middle" font-family="Arial,sans-serif" font-size="8" fill="#7a4444" letter-spacing="1">LOCAL FILE CONVERSION</text>

@@ -20,6 +20,6 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
       - uses: actions/upload-artifact@v4
         with:
-          name: Contrary-Convertor-Mac
+          name: Vesper-Convertor-Mac
           path: dist/*.dmg
           retention-days: 30
