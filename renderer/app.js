@@ -56,19 +56,14 @@ const historyList     = $('history-list');
 const historyClearBtn = $('history-clear-btn');
 
 // Settings
-const settingsOverlay = $('settings-overlay');
-const settingsCloseBtn= $('settings-close-btn');
-const settingsBtn     = $('btn-settings');
 const threadSlider    = $('thread-slider');
 const threadCount     = $('thread-count');
 const githubLink      = $('github-link');
 
-// Download mode
-const downloadHint    = $('download-link-hint');
+// Download
 const downloadSection = $('download-section');
 const downloadUrl     = $('download-url');
 const downloadGoBtn   = $('download-go-btn');
-const downloadBack    = $('download-back');
 const dlProgressSection = $('download-progress-section');
 const dlProgressBar   = $('dl-progress-bar');
 const dlProgressLabel = $('dl-progress-label');
@@ -87,8 +82,10 @@ $('btn-close').addEventListener('click',    () => window.electronAPI.close());
 // Populate version in Settings
 if (window.electronAPI.getVersion) {
   window.electronAPI.getVersion().then(v => {
-    const el = $('settings-app-version');
-    if (el) el.textContent = `Current version: v${v}`;
+    const nav = $('settings-app-version');
+    if (nav) nav.textContent = `v${v}`;
+    const hint = $('settings-version-hint');
+    if (hint) hint.textContent = `Current version: v${v}`;
   });
 }
 
@@ -98,19 +95,7 @@ historyClearBtn.addEventListener('click', () => {
   historyList.innerHTML = '<li class="history-empty">No conversions yet ... drop a file to get started</li>';
 });
 
-// --------------------------- Settings panel ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-settingsBtn.addEventListener('click', () => {
-  settingsOverlay.classList.add('open');
-});
-
-settingsCloseBtn.addEventListener('click', () => {
-  settingsOverlay.classList.remove('open');
-});
-
-settingsOverlay.addEventListener('click', (e) => {
-  if (e.target === settingsOverlay) settingsOverlay.classList.remove('open');
-});
-
+// --------------------------- Settings ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 threadSlider.addEventListener('input', () => {
   state.threads = parseInt(threadSlider.value);
   threadCount.textContent = threadSlider.value;
@@ -164,16 +149,7 @@ if (window.electronAPI.loadSettings) {
   });
 }
 
-// --------------------------- Download mode toggle ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
-downloadHint.addEventListener('click', () => {
-  state.downloadMode = true;
-  dropzone.style.display = 'none';
-  downloadHint.style.display = 'none';
-  show(downloadSection);
-  downloadSource.innerHTML = '';
-  downloadUrl.focus();
-});
-
+// --------------------------- Download URL handling --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 downloadUrl.addEventListener('input', () => {
   const url = downloadUrl.value.trim();
   downloadSource.innerHTML = url ? detectSourceHtml(url) : '';
@@ -189,15 +165,6 @@ downloadUrl.addEventListener('input', () => {
       fmtSel.title = 'Download format';
     }
   }
-});
-
-downloadBack.addEventListener('click', () => {
-  state.downloadMode = false;
-  dropzone.style.display = '';
-  downloadHint.style.display = '';
-  hide(downloadSection);
-  hide(dlProgressSection);
-  downloadUrl.value = '';
 });
 
 // --------------------------- Download handler ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
@@ -412,6 +379,7 @@ document.addEventListener('paste', async (e) => {
 // --------------------------- Load / detect file ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------
 async function loadFile(filePath) {
   resetUI(false);
+  if (window.VesperUI) { window.VesperUI.enterWorkspace(); window.VesperUI.renderPreviews(null); }
   try {
     const info = await window.electronAPI.detectFile(filePath);
     if (info.error) { showError('Could not read file: ' + info.error); return; }
@@ -419,7 +387,16 @@ async function loadFile(filePath) {
     renderFileInfo(info);
     populateDropdown(info);
     applySourceDefaults(info);
-    show(fileInfoSection); show(formatSection); show(convertSection);
+    show(fileInfoSection);
+    if (window.VesperUI && window.VesperUI.isOpMode && window.VesperUI.isOpMode()) {
+      window.VesperUI.showOpPanel();
+    } else {
+      show(formatSection); show(convertSection);
+      // If a specific tool was picked, auto-select its output format.
+      if (window.VesperUI && window.VesperUI.activeTool && window.VesperUI.activeTool.op) {
+        window.VesperUI.autoSelectFormat(window.VesperUI.activeTool.op);
+      }
+    }
   } catch (err) { showError('Detection failed: ' + err.message); }
 }
 
@@ -845,8 +822,19 @@ async function enterBulkMode(filePaths) {
   const bulkInfo = { ...detected[0], outputFormats: commonFormats, name: `${detected.length} files` };
   populateDropdown(bulkInfo);
 
-  show(fileInfoSection); show(formatSection); show(convertSection);
-  updateConvertBtn();
+  if (window.VesperUI) { window.VesperUI.enterWorkspace(); window.VesperUI.renderPreviews(detected); }
+
+  show(fileInfoSection);
+  if (window.VesperUI && window.VesperUI.isOpMode && window.VesperUI.isOpMode()) {
+    window.VesperUI.showOpPanel();
+  } else {
+    show(formatSection); show(convertSection);
+    // If a specific tool was picked and all files support it, auto-select it.
+    if (window.VesperUI && window.VesperUI.activeTool && window.VesperUI.activeTool.op) {
+      window.VesperUI.autoSelectFormat(window.VesperUI.activeTool.op);
+    }
+    updateConvertBtn();
+  }
 }
 
 // Override convert button to handle bulk mode
@@ -968,11 +956,18 @@ function updateConvertBtn() {
   convertBtn.disabled = !(state.currentFile && state.selectedFormat && !state.converting);
 }
 
+// Files currently loaded in the workspace (single or bulk), as absolute paths.
+function getWorkspaceFiles() {
+  if (state.bulkFiles && state.bulkFiles.length) return state.bulkFiles.map(f => f.path);
+  return state.currentFile ? [state.currentFile.path] : [];
+}
+
 function resetUI(clearFile = true) {
   if (clearFile) { state.currentFile = null; state.selectedFormat = null; state.bulkFiles = []; }
   state.converting = false;
   dropzone.classList.remove('drag-over','file-loaded','success-flash');
-  hide(fileInfoSection); hide(formatSection); hide(optionsSection); hide(progressSection);
+  hide(fileInfoSection); hide(formatSection); hide(optionsSection); hide(progressSection); hide(convertSection);
+  const opPanel = $('op-panel'); if (opPanel) opPanel.style.display = 'none';
   optionsBody.classList.remove('open');
   formatOptions.innerHTML = '';
   formatToggleText.textContent = 'Select output format...';

@@ -1,5 +1,42 @@
 # Vesper Convertor — Updates
 
+## v2.51.0 (July 14, 2026) — 🚀 The Big One: Tools, AI & a Photo Editor
+
+A ground-up redesign and a massive feature expansion. Vesper is no longer just a
+converter — it's a full local toolkit.
+
+### 🎨 Brand-new interface — 4 tabs
+- Completely rebuilt UI with a premium, animated look and a left navigation rail
+- **Tools** · **Download** · **Photo Editor** · **Settings**
+- **Tools** is now a searchable catalog of tool cards grouped by category (Image, Video, Audio, PDF & Docs, Data, Archive, 3D, Font, Cursor, AI)
+- Pick a tool then add your files — or drop files first and go straight to work
+- **Multi-file upload with live thumbnail previews**
+- Settings is a full page with a Language selector (English default; more languages coming)
+
+### 🧰 80+ tools
+- **Image:** resize, crop, rotate, flip, grayscale, color adjust (brightness/saturation/hue), blur, compress, watermark, expand canvas, fix transparency — plus all format conversions
+- **Video:** trim, crop, merge, mute, reverse, extract audio, change FPS, video→GIF, fix-for-platform
+- **Audio:** trim, normalize, volume, fade in/out, pitch shift, remove silence, reverse, merge, split, waveform image
+- **PDF:** merge, split, rotate, add page numbers, delete pages, compress — plus PDF→images/text/HTML/MD, watermark, extract images/fonts
+- **Files:** CSV/JSON/XML/YAML/TOML conversion, CSV merge & split, Excel→CSV, ZIP create/extract
+
+### 🤖 On-device AI (nothing leaves your PC)
+- **Real AI upscaling** — replaced the old resize-only upscaler with genuine neural super-resolution (Real-ESRGAN). It synthesises real detail, and safely falls back to a high-quality resize on machines without a compatible GPU
+- **Speech-to-text** — transcribe audio to subtitles, and auto-generate SRT subtitles from video (Whisper, runs locally)
+- **Blur faces** — automatic face detection + blur
+- **Expand canvas** and **fix transparency**
+- Existing on-device AI (background removal, OCR, noise removal, text-to-speech) all carried over
+
+### 🖼️ Photo Editor (new)
+- A layer-based editor that runs entirely on your hardware
+- Layers with visibility, opacity and reordering
+- Brush, eraser, line, rectangle, ellipse, fill and text tools
+- Adjustments (brightness / contrast / saturation) and filters (grayscale, invert, sepia, blur)
+- Undo / redo, keyboard shortcuts, and one-click PNG export
+
+### Notes
+- More AI (colorize, restore, object erase, face enhance) and additional languages are on the roadmap.
+
 ## v2.00.0 (July 14, 2026) — 🌒 Meet Vesper
 
 **Contrary Convertor is dead. Long live Vesper Convertor.**

@@ -74,6 +74,20 @@ app.on('activate', () => { if (!mainWindow) createMainWindow(); });
 
 // ─── Custom Auto-Update via GitHub Releases API ──────────────────────────────
 ipcMain.handle('app:version', () => app.getVersion());
+
+// Photo Editor → save the flattened PNG via a native save dialog.
+ipcMain.handle('editor:export', async (_e, { dataUrl }) => {
+  try {
+    const res = await dialog.showSaveDialog(mainWindow, {
+      defaultPath: 'vesper-edit.png',
+      filters: [{ name: 'PNG Image', extensions: ['png'] }],
+    });
+    if (res.canceled || !res.filePath) return { canceled: true };
+    const base64 = String(dataUrl).replace(/^data:image\/png;base64,/, '');
+    fs.writeFileSync(res.filePath, Buffer.from(base64, 'base64'));
+    return { outputPath: res.filePath };
+  } catch (err) { return { error: err.message }; }
+});
 const REPO_OWNER = 'AroseEditor';
 const REPO_NAME  = 'Vesper-Convertor';
 const CURRENT_VERSION = app.getVersion(); // reads from package.json
@@ -3390,14 +3404,80 @@ async function runDenoise(inputPath, outputPath, emit, sender) {
 // ═════════════════════════════════════════════════════════════════════════════
 
 // ── Image Upscaling ───────────────────────────────────────────────────────────
-async function upscaleImage(input, output, scaleMode, emit) {
+// Real-ESRGAN (ncnn-vulkan) — actual neural super-resolution that synthesises
+// detail, unlike a plain resize. Auto-downloaded on first use (same pattern as
+// yt-dlp/spotdl). Falls back to a high-quality sharp resize if unavailable.
+async function ensureRealesrgan(emit) {
+  const dir = path.join(app.getPath('userData'), 'realesrgan');
+  const exe = path.join(dir, process.platform === 'win32' ? 'realesrgan-ncnn-vulkan.exe' : 'realesrgan-ncnn-vulkan');
+  if (fs.existsSync(exe)) return exe;
+
+  fs.mkdirSync(dir, { recursive: true });
+  const base = 'https://github.com/xinntao/Real-ESRGAN/releases/download/v0.2.5.0/';
+  const zipName = process.platform === 'win32'
+    ? 'realesrgan-ncnn-vulkan-20220424-windows.zip'
+    : process.platform === 'darwin'
+      ? 'realesrgan-ncnn-vulkan-20220424-macos.zip'
+      : 'realesrgan-ncnn-vulkan-20220424-ubuntu.zip';
+  const zipPath = path.join(dir, 'pkg.zip');
+
+  emit(2, 'Downloading AI upscaler (first time, ~45 MB)…');
+  await dlFile(base + zipName, zipPath, (pct) => emit(2 + pct * 0.45, `Downloading AI upscaler: ${Math.round(pct)}%`));
+
+  emit(50, 'Extracting AI upscaler…');
+  const StreamZip = r('node-stream-zip');
+  const zip = new StreamZip.async({ file: zipPath });
+  await zip.extract(null, dir);
+  await zip.close();
+  try { fs.unlinkSync(zipPath); } catch {}
+  if (process.platform !== 'win32') { try { fs.chmodSync(exe, 0o755); } catch {} }
+  if (!fs.existsSync(exe)) throw new Error('Upscaler binary missing after extraction');
+  return exe;
+}
+
+async function upscaleImageAI(input, output, scale, emit) {
+  const exe = await ensureRealesrgan(emit);
+  const modelsDir = path.join(path.dirname(exe), 'models');
   const sharp = r('sharp');
   const meta = await sharp(input, { failOnError: false }).metadata();
-  const scale = scaleMode === 'upscale4x' ? 4 : 2;
+  const targetW = Math.round((meta.width || 512) * scale);
+  const targetH = Math.round((meta.height || 512) * scale);
+
+  // Real-ESRGAN x4plus always outputs 4×; render to a temp PNG then resize to the
+  // exact target (this also gives us clean control over final encoding).
+  const tmpOut = path.join(app.getPath('temp'), `vesper_up_${Date.now()}.png`);
+  emit(55, 'AI upscaling (Real-ESRGAN)…');
+  await new Promise((resolve, reject) => {
+    const args = ['-i', input, '-o', tmpOut, '-n', 'realesrgan-x4plus', '-m', modelsDir, '-s', '4'];
+    const proc = spawn(exe, args, { cwd: path.dirname(exe) });
+    let err = '';
+    proc.stderr.on('data', (d) => {
+      err += d.toString();
+      const m = d.toString().match(/([\d.]+)%/);
+      if (m) emit(55 + Math.min(30, parseFloat(m[1]) * 0.3), 'AI upscaling…');
+    });
+    proc.on('error', reject);
+    proc.on('close', (code) => {
+      if (code === 0 && fs.existsSync(tmpOut)) resolve();
+      else reject(new Error('Real-ESRGAN failed: ' + err.slice(0, 200)));
+    });
+  });
+
+  emit(88, 'Finalizing…');
+  const ext = path.extname(output).toLowerCase().slice(1);
+  let pipe = sharp(tmpOut).resize(targetW, targetH, { kernel: 'lanczos3' });
+  if (ext === 'jpg' || ext === 'jpeg') await pipe.jpeg({ quality: 95, mozjpeg: true }).toFile(output);
+  else if (ext === 'webp') await pipe.webp({ quality: 95 }).toFile(output);
+  else await pipe.png({ compressionLevel: 3 }).toFile(output);
+  try { fs.unlinkSync(tmpOut); } catch {}
+}
+
+async function upscaleImageSharp(input, output, scale, emit) {
+  const sharp = r('sharp');
+  const meta = await sharp(input, { failOnError: false }).metadata();
   const newW = Math.round((meta.width || 512) * scale);
   const newH = Math.round((meta.height || 512) * scale);
-
-  emit(20, `Upscaling ${scale}x: ${meta.width}×${meta.height} → ${newW}×${newH}…`);
+  emit(30, `High-quality resize ${scale}×: ${meta.width}×${meta.height} → ${newW}×${newH}…`);
 
   const ext = path.extname(input).toLowerCase().slice(1);
   let pipeline = sharp(input, { failOnError: false })
@@ -3405,15 +3485,470 @@ async function upscaleImage(input, output, scaleMode, emit) {
     .resize(newW, newH, { kernel: 'lanczos3', fastShrinkOnLoad: false })
     .sharpen({ sigma: 0.8, m1: 0.5, m2: 2, x1: 2, y2: 10, y3: 20 });
 
-  emit(60, 'Saving upscaled image…');
-  if (ext === 'jpg' || ext === 'jpeg') {
-    await pipeline.jpeg({ quality: 97, mozjpeg: true }).toFile(output);
-  } else if (ext === 'webp') {
-    await pipeline.webp({ quality: 97 }).toFile(output);
-  } else {
-    await pipeline.png({ compressionLevel: 2 }).toFile(output);
+  emit(70, 'Saving upscaled image…');
+  if (ext === 'jpg' || ext === 'jpeg') await pipeline.jpeg({ quality: 97, mozjpeg: true }).toFile(output);
+  else if (ext === 'webp') await pipeline.webp({ quality: 97 }).toFile(output);
+  else await pipeline.png({ compressionLevel: 2 }).toFile(output);
+}
+
+async function upscaleImage(input, output, scaleMode, emit) {
+  const scale = scaleMode === 'upscale4x' ? 4 : 2;
+  try {
+    await upscaleImageAI(input, output, scale, emit);
+    emit(96, 'Done!');
+  } catch (err) {
+    // No Vulkan / download failed / model error → fall back to sharp resize.
+    emit(25, 'AI upscaler unavailable — using high-quality resize…');
+    await upscaleImageSharp(input, output, scale, emit);
   }
-  emit(90, 'Finalizing…');
+}
+
+// ── Operation tools (crop, trim, merge, split, page numbers, …) ───────────────
+// A single dispatcher for tools that are operations rather than format
+// conversions. Handles single- and multi-file inputs uniformly.
+ipcMain.handle('tool:op', async (event, { op, filePaths, options }) => {
+  const emit = (pct, msg) => event.sender.send('convert:progress', { percent: pct, message: msg });
+  try {
+    emit(0, 'Starting…');
+    const outputPath = await runToolOp(op, filePaths || [], options || {}, emit);
+    emit(100, 'Done!');
+    let outputSize = 0;
+    try { const st = fs.statSync(outputPath); outputSize = st.isDirectory() ? getDirSize(outputPath) : st.size; } catch {}
+    return { success: true, outputPath, outputSize };
+  } catch (err) {
+    event.sender.send('convert:error', { message: err.message });
+    return { error: err.message };
+  }
+});
+
+// Spawn the bundled ffmpeg with progress parsing (time= → percent).
+function ffmpegRun(args, emit, totalSec) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(getFFmpegPath(), ['-y', ...args]);
+    let err = '';
+    proc.stderr.on('data', (d) => {
+      err += d.toString();
+      const m = d.toString().match(/time=(\d+):(\d+):(\d+(?:\.\d+)?)/);
+      if (m && totalSec) {
+        const t = (+m[1]) * 3600 + (+m[2]) * 60 + parseFloat(m[3]);
+        emit(10 + Math.min(85, (t / totalSec) * 85), 'Processing…');
+      }
+    });
+    proc.on('error', reject);
+    proc.on('close', (code) => code === 0 ? resolve() : reject(new Error('ffmpeg: ' + err.slice(-180))));
+  });
+}
+
+async function encodeSharpTo(pipe, output) {
+  const ext = path.extname(output).toLowerCase().slice(1);
+  if (ext === 'jpg' || ext === 'jpeg') return pipe.jpeg({ quality: 92, mozjpeg: true }).toFile(output);
+  if (ext === 'webp') return pipe.webp({ quality: 92 }).toFile(output);
+  if (ext === 'avif') return pipe.avif({ quality: 60 }).toFile(output);
+  if (ext === 'tiff' || ext === 'tif') return pipe.tiff().toFile(output);
+  if (ext === 'gif') return pipe.gif().toFile(output);
+  return pipe.png().toFile(output);
+}
+
+const num = (v, d) => { const n = parseFloat(v); return Number.isFinite(n) ? n : d; };
+
+async function runToolOp(op, filePaths, o, emit) {
+  const sharp = () => r('sharp');
+  const input = filePaths[0];
+  if (!input) throw new Error('No input file.');
+  const dir  = path.dirname(input);
+  const base = path.basename(input, path.extname(input));
+  const ext  = path.extname(input).toLowerCase().slice(1);
+  const out  = (suffix, newExt) => path.join(dir, `${base}_${suffix}.${newExt || ext}`);
+
+  switch (op) {
+    /* ---------- Image (sharp) ---------- */
+    case 'img-resize': {
+      const w = o.width ? parseInt(o.width) : null;
+      const h = o.height ? parseInt(o.height) : null;
+      if (!w && !h) throw new Error('Enter a width and/or height.');
+      const output = out('resized');
+      await encodeSharpTo(sharp()(input, { failOnError: false }).rotate().resize(w, h, { fit: 'inside', withoutEnlargement: false }), output);
+      return output;
+    }
+    case 'img-crop': {
+      const meta = await sharp()(input).metadata();
+      const left = Math.max(0, parseInt(o.x) || 0), top = Math.max(0, parseInt(o.y) || 0);
+      const width = parseInt(o.w) || (meta.width - left), height = parseInt(o.h) || (meta.height - top);
+      if (left + width > meta.width || top + height > meta.height) throw new Error('Crop box is outside the image.');
+      const output = out('cropped');
+      await encodeSharpTo(sharp()(input, { failOnError: false }).extract({ left, top, width, height }), output);
+      return output;
+    }
+    case 'img-rotate': {
+      const output = out('rotated');
+      await encodeSharpTo(sharp()(input, { failOnError: false }).rotate(parseInt(o.angle) || 90), output);
+      return output;
+    }
+    case 'img-flip': {
+      const output = out('flipped');
+      let p = sharp()(input, { failOnError: false });
+      p = (o.dir === 'v') ? p.flip() : p.flop();
+      await encodeSharpTo(p, output);
+      return output;
+    }
+    case 'img-grayscale': {
+      const output = out('grayscale');
+      await encodeSharpTo(sharp()(input, { failOnError: false }).grayscale(), output);
+      return output;
+    }
+    case 'img-adjust': {
+      const output = out('adjusted');
+      await encodeSharpTo(sharp()(input, { failOnError: false }).modulate({
+        brightness: num(o.brightness, 1), saturation: num(o.saturation, 1), hue: num(o.hue, 0),
+      }), output);
+      return output;
+    }
+    case 'img-blur': {
+      const output = out('blurred');
+      await encodeSharpTo(sharp()(input, { failOnError: false }).blur(Math.max(0.3, num(o.sigma, 3))), output);
+      return output;
+    }
+    case 'img-compress': {
+      const q = Math.min(100, Math.max(1, parseInt(o.quality) || 70));
+      const output = out('compressed');
+      let p = sharp()(input, { failOnError: false }).rotate();
+      if (ext === 'png') await p.png({ quality: q, compressionLevel: 9, palette: true }).toFile(output);
+      else if (ext === 'webp') await p.webp({ quality: q }).toFile(output);
+      else await p.jpeg({ quality: q, mozjpeg: true }).toFile(output);
+      return output;
+    }
+
+    /* ---------- Audio (ffmpeg) ---------- */
+    case 'aud-trim': {
+      const output = out('trimmed');
+      await ffmpegRun(['-ss', String(num(o.start, 0)), '-to', String(num(o.end, 0)), '-i', input, '-c', 'copy', output], emit, num(o.end, 0) - num(o.start, 0));
+      return output;
+    }
+    case 'aud-normalize': {
+      const output = out('normalized');
+      const probe = await probeMedia(input);
+      await ffmpegRun(['-i', input, '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11', output], emit, probe && probe.duration);
+      return output;
+    }
+    case 'aud-volume': {
+      const output = out('volume');
+      const probe = await probeMedia(input);
+      await ffmpegRun(['-i', input, '-af', `volume=${num(o.db, 0)}dB`, output], emit, probe && probe.duration);
+      return output;
+    }
+    case 'aud-fade': {
+      const probe = await probeMedia(input);
+      const dur = (probe && probe.duration) || 0;
+      const fi = num(o.inSec, 2), fo = num(o.outSec, 2);
+      const output = out('faded');
+      await ffmpegRun(['-i', input, '-af', `afade=t=in:st=0:d=${fi},afade=t=out:st=${Math.max(0, dur - fo)}:d=${fo}`, output], emit, dur);
+      return output;
+    }
+    case 'aud-pitch': {
+      const probe = await probeMedia(input);
+      const sr = (probe && probe.audio && probe.audio.sampleRate) || 44100;
+      const f = Math.pow(2, num(o.semitones, 0) / 12);
+      const output = out('pitched');
+      await ffmpegRun(['-i', input, '-af', `asetrate=${Math.round(sr * f)},aresample=${sr},atempo=${(1 / f).toFixed(6)}`, output], emit, probe && probe.duration);
+      return output;
+    }
+    case 'aud-silence': {
+      const output = out('trimmed_silence');
+      const probe = await probeMedia(input);
+      await ffmpegRun(['-i', input, '-af', 'silenceremove=start_periods=1:start_threshold=-50dB:detection=peak,areverse,silenceremove=start_periods=1:start_threshold=-50dB:detection=peak,areverse', output], emit, probe && probe.duration);
+      return output;
+    }
+    case 'aud-reverse': {
+      const output = out('reversed');
+      const probe = await probeMedia(input);
+      await ffmpegRun(['-i', input, '-af', 'areverse', output], emit, probe && probe.duration);
+      return output;
+    }
+
+    /* ---------- Video (ffmpeg) ---------- */
+    case 'vid-trim': {
+      const output = out('trimmed');
+      await ffmpegRun(['-ss', String(num(o.start, 0)), '-to', String(num(o.end, 0)), '-i', input, '-c', 'copy', output], emit, num(o.end, 0) - num(o.start, 0));
+      return output;
+    }
+    case 'vid-crop': {
+      const output = out('cropped');
+      const probe = await probeMedia(input);
+      const w = parseInt(o.w) || 100, h = parseInt(o.h) || 100, x = parseInt(o.x) || 0, y = parseInt(o.y) || 0;
+      await ffmpegRun(['-i', input, '-vf', `crop=${w}:${h}:${x}:${y}`, '-c:a', 'copy', output], emit, probe && probe.duration);
+      return output;
+    }
+    case 'vid-mute': {
+      const output = out('muted');
+      await ffmpegRun(['-i', input, '-c', 'copy', '-an', output], emit, null);
+      return output;
+    }
+    case 'vid-reverse': {
+      const output = out('reversed');
+      const probe = await probeMedia(input);
+      await ffmpegRun(['-i', input, '-vf', 'reverse', '-af', 'areverse', output], emit, probe && probe.duration);
+      return output;
+    }
+
+    /* ---------- PDF (pdf-lib) ---------- */
+    case 'pdf-merge': {
+      const { PDFDocument } = r('pdf-lib');
+      const merged = await PDFDocument.create();
+      for (let i = 0; i < filePaths.length; i++) {
+        const src = await PDFDocument.load(fs.readFileSync(filePaths[i]));
+        const pages = await merged.copyPages(src, src.getPageIndices());
+        pages.forEach(p => merged.addPage(p));
+        emit(10 + Math.round((i / filePaths.length) * 80), `Merging ${i + 1}/${filePaths.length}…`);
+      }
+      const output = out('merged', 'pdf');
+      fs.writeFileSync(output, await merged.save());
+      return output;
+    }
+    case 'pdf-split': {
+      const { PDFDocument } = r('pdf-lib');
+      const src = await PDFDocument.load(fs.readFileSync(input));
+      const n = src.getPageCount();
+      const outDir = path.join(dir, `${base}_pages`);
+      fs.mkdirSync(outDir, { recursive: true });
+      for (let i = 0; i < n; i++) {
+        const doc = await PDFDocument.create();
+        const [p] = await doc.copyPages(src, [i]);
+        doc.addPage(p);
+        fs.writeFileSync(path.join(outDir, `${base}_p${String(i + 1).padStart(3, '0')}.pdf`), await doc.save());
+        emit(10 + Math.round((i / n) * 85), `Page ${i + 1}/${n}…`);
+      }
+      return outDir;
+    }
+    case 'pdf-rotate': {
+      const { PDFDocument, degrees } = r('pdf-lib');
+      const doc = await PDFDocument.load(fs.readFileSync(input));
+      const ang = parseInt(o.angle) || 90;
+      doc.getPages().forEach(p => p.setRotation(degrees((p.getRotation().angle + ang) % 360)));
+      const output = out('rotated', 'pdf');
+      fs.writeFileSync(output, await doc.save());
+      return output;
+    }
+    case 'pdf-numbers': {
+      const { PDFDocument, StandardFonts, rgb } = r('pdf-lib');
+      const doc = await PDFDocument.load(fs.readFileSync(input));
+      const font = await doc.embedFont(StandardFonts.Helvetica);
+      const pages = doc.getPages();
+      pages.forEach((p, i) => {
+        const { width } = p.getSize();
+        const text = `${i + 1} / ${pages.length}`;
+        const tw = font.widthOfTextAtSize(text, 10);
+        p.drawText(text, { x: (width - tw) / 2, y: 18, size: 10, font, color: rgb(0.3, 0.3, 0.3) });
+      });
+      const output = out('numbered', 'pdf');
+      fs.writeFileSync(output, await doc.save());
+      return output;
+    }
+    case 'pdf-delete': {
+      const { PDFDocument } = r('pdf-lib');
+      const doc = await PDFDocument.load(fs.readFileSync(input));
+      const drop = new Set(String(o.pages || '').split(',').map(s => parseInt(s.trim()) - 1).filter(n => n >= 0));
+      // Remove from the end so indices stay valid.
+      [...doc.getPageIndices()].reverse().forEach(i => { if (drop.has(i)) doc.removePage(i); });
+      const output = out('edited', 'pdf');
+      fs.writeFileSync(output, await doc.save());
+      return output;
+    }
+
+    case 'img-watermark': {
+      const s = r('sharp');
+      const meta = await s(input).metadata();
+      const W = meta.width || 800, H = meta.height || 600;
+      const fontSize = Math.max(14, Math.round(W / 16));
+      const opacity = num(o.opacity, 0.35);
+      const svg = `<svg width="${W}" height="${H}" xmlns="http://www.w3.org/2000/svg"><text x="50%" y="50%" text-anchor="middle" dominant-baseline="middle" transform="rotate(-30 ${W / 2} ${H / 2})" fill="rgba(255,255,255,${opacity})" font-size="${fontSize}" font-family="sans-serif" font-weight="bold">${escHtml(o.text || 'WATERMARK')}</text></svg>`;
+      const output = out('watermarked');
+      await encodeSharpTo(s(input, { failOnError: false }).composite([{ input: Buffer.from(svg) }]), output);
+      return output;
+    }
+    case 'img-expand': {
+      const px = Math.max(1, parseInt(o.pixels) || 40);
+      const output = out('expanded');
+      await encodeSharpTo(r('sharp')(input, { failOnError: false }).extend({ top: px, bottom: px, left: px, right: px, background: o.color || '#ffffff' }), output);
+      return output;
+    }
+    case 'img-fixtransparency': {
+      const s = r('sharp');
+      const { data, info } = await s(input, { failOnError: false }).ensureAlpha().raw().toBuffer({ resolveWithObject: true });
+      const ch = info.channels;
+      for (let i = 0; i < info.width * info.height; i++) {
+        const a = data[i * ch + (ch - 1)];
+        data[i * ch + (ch - 1)] = a < 128 ? 0 : 255; // kill semi-transparent halo fringe
+      }
+      const output = out('fixed', 'png');
+      await s(data, { raw: { width: info.width, height: info.height, channels: ch } }).png().toFile(output);
+      return output;
+    }
+
+    /* ---------- Audio batch 2 (ffmpeg) ---------- */
+    case 'aud-merge': {
+      const inputs = []; filePaths.forEach(f => inputs.push('-i', f));
+      const filter = filePaths.map((_, i) => `[${i}:a]`).join('') + `concat=n=${filePaths.length}:v=0:a=1[a]`;
+      const output = out('merged', 'mp3');
+      await ffmpegRun([...inputs, '-filter_complex', filter, '-map', '[a]', output], emit, null);
+      return output;
+    }
+    case 'aud-split': {
+      const seg = Math.max(1, num(o.seconds, 30));
+      const outDir = path.join(dir, `${base}_segments`); fs.mkdirSync(outDir, { recursive: true });
+      await ffmpegRun(['-i', input, '-f', 'segment', '-segment_time', String(seg), '-c', 'copy', path.join(outDir, `${base}_%03d.${ext}`)], emit, null);
+      return outDir;
+    }
+    case 'aud-waveform': {
+      const output = out('waveform', 'png');
+      await ffmpegRun(['-i', input, '-filter_complex', 'showwavespic=s=1400x400:colors=#a855f7', '-frames:v', '1', output], emit, null);
+      return output;
+    }
+
+    /* ---------- Video batch 2 (ffmpeg) ---------- */
+    case 'vid-merge': {
+      const inputs = []; filePaths.forEach(f => inputs.push('-i', f));
+      const filter = filePaths.map((_, i) => `[${i}:v:0][${i}:a:0]`).join('') + `concat=n=${filePaths.length}:v=1:a=1[v][a]`;
+      const output = out('merged', 'mp4');
+      await ffmpegRun([...inputs, '-filter_complex', filter, '-map', '[v]', '-map', '[a]', output], emit, null);
+      return output;
+    }
+
+    /* ---------- PDF batch 2 ---------- */
+    case 'pdf-compress': {
+      const { PDFDocument } = r('pdf-lib');
+      const doc = await PDFDocument.load(fs.readFileSync(input));
+      const output = out('compressed', 'pdf');
+      fs.writeFileSync(output, await doc.save({ useObjectStreams: true }));
+      return output;
+    }
+
+    /* ---------- Files batch 2 ---------- */
+    case 'csv-merge': {
+      let outLines = [];
+      filePaths.forEach((fp, i) => {
+        const lines = fs.readFileSync(fp, 'utf-8').split(/\r?\n/);
+        if (i === 0) outLines = lines.slice();
+        else outLines = outLines.concat(lines.slice(1)); // skip header on subsequent files
+      });
+      const output = out('merged', 'csv');
+      fs.writeFileSync(output, outLines.join('\n'), 'utf-8');
+      return output;
+    }
+    case 'csv-split': {
+      const rows = Math.max(1, parseInt(o.rows) || 1000);
+      const lines = fs.readFileSync(input, 'utf-8').split(/\r?\n/);
+      const header = lines[0], body = lines.slice(1).filter(l => l.length);
+      const outDir = path.join(dir, `${base}_split`); fs.mkdirSync(outDir, { recursive: true });
+      let part = 1;
+      for (let i = 0; i < body.length; i += rows) {
+        fs.writeFileSync(path.join(outDir, `${base}_part${String(part++).padStart(3, '0')}.csv`), [header, ...body.slice(i, i + rows)].join('\n'), 'utf-8');
+      }
+      return outDir;
+    }
+
+    /* ---------- Local AI (Python) ---------- */
+    case 'transcribe':  return await runTranscribe(input, ext, o, emit);
+    case 'faceblur':    return await runFaceBlur(input, emit);
+
+    default:
+      throw new Error(`Unknown tool operation: ${op}`);
+  }
+}
+
+// ── Local AI helpers (Python) ─────────────────────────────────────────────────
+async function ensurePyPackage(pythonPath, importName, pipName, emit, label) {
+  try { await execPromise(`"${pythonPath}" -c "import ${importName}"`); return; } catch {}
+  emit(8, `Installing ${label || pipName} (first time)…`);
+  await execPromise(`"${pythonPath}" -m pip install --no-cache-dir ${pipName} --no-warn-script-location`);
+}
+
+function runPyScript(pythonPath, scriptPath, args, onLine) {
+  return new Promise((resolve, reject) => {
+    const proc = spawn(pythonPath, [scriptPath, ...args]);
+    let err = '';
+    const handle = (buf) => buf.toString().split(/\r?\n/).forEach(l => { if (l.trim() && onLine) onLine(l.trim()); });
+    proc.stdout.on('data', handle);
+    proc.stderr.on('data', (d) => { err += d.toString(); handle(d); });
+    proc.on('error', reject);
+    proc.on('close', (code) => code === 0 ? resolve() : reject(new Error(err.slice(-220) || 'python failed')));
+  });
+}
+
+const WHISPER_SCRIPT = [
+  'import sys',
+  'from faster_whisper import WhisperModel',
+  'audio, out = sys.argv[1], sys.argv[2]',
+  'model = WhisperModel("base", device="cpu", compute_type="int8")',
+  'segments, info = model.transcribe(audio, vad_filter=True)',
+  'total = info.duration or 1',
+  'def ts(t):',
+  '    h=int(t//3600); m=int((t%3600)//60); s=t%60',
+  '    return ("%02d:%02d:%06.3f" % (h,m,s)).replace(".",",")',
+  'with open(out, "w", encoding="utf-8") as f:',
+  '    for i, seg in enumerate(segments, 1):',
+  '        f.write("%d\\n%s --> %s\\n%s\\n\\n" % (i, ts(seg.start), ts(seg.end), seg.text.strip()))',
+  '        sys.stdout.write("PROGRESS %.1f\\n" % min(100.0, seg.end/total*100)); sys.stdout.flush()',
+].join('\n');
+
+async function runTranscribe(input, ext, o, emit) {
+  const dir = path.dirname(input);
+  const base = path.basename(input, path.extname(input));
+  const outSrt = path.join(dir, `${base}.srt`);
+
+  emit(3, 'Preparing transcription…');
+  const pythonPath = await ensurePython((m) => emit(3, m));
+  await ensurePyPackage(pythonPath, 'faster_whisper', 'faster-whisper', emit, 'speech-to-text');
+
+  // Video input → extract mono 16 kHz audio first.
+  let audioPath = input, tmpWav = null;
+  if (['mp4', 'mkv', 'mov', 'avi', 'webm', 'flv', 'wmv', 'm4v'].includes(ext)) {
+    tmpWav = path.join(app.getPath('temp'), `vesper_tx_${Date.now()}.wav`);
+    emit(12, 'Extracting audio…');
+    await ffmpegRun(['-i', input, '-vn', '-ac', '1', '-ar', '16000', tmpWav], emit, null);
+    audioPath = tmpWav;
+  }
+
+  const scriptPath = path.join(app.getPath('temp'), `vesper_whisper_${Date.now()}.py`);
+  fs.writeFileSync(scriptPath, WHISPER_SCRIPT, 'utf-8');
+  emit(25, 'Transcribing (first run downloads the model)…');
+  await runPyScript(pythonPath, scriptPath, [audioPath, outSrt], (line) => {
+    const m = line.match(/PROGRESS\s+([\d.]+)/);
+    if (m) emit(25 + Math.min(70, parseFloat(m[1]) * 0.7), 'Transcribing…');
+  });
+  try { fs.unlinkSync(scriptPath); } catch {}
+  if (tmpWav) { try { fs.unlinkSync(tmpWav); } catch {} }
+  if (!fs.existsSync(outSrt)) throw new Error('Transcription produced no output.');
+  return outSrt;
+}
+
+const FACEBLUR_SCRIPT = [
+  'import sys, cv2',
+  'img = cv2.imread(sys.argv[1])',
+  'gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)',
+  'cc = cv2.CascadeClassifier(cv2.data.haarcascades + "haarcascade_frontalface_default.xml")',
+  'faces = cc.detectMultiScale(gray, 1.1, 5)',
+  'for (x,y,w,h) in faces:',
+  '    roi = img[y:y+h, x:x+w]',
+  '    k = max(15, (w//3)|1)',
+  '    img[y:y+h, x:x+w] = cv2.GaussianBlur(roi, (k,k), 0)',
+  'cv2.imwrite(sys.argv[2], img)',
+].join('\n');
+
+async function runFaceBlur(input, emit) {
+  const dir = path.dirname(input);
+  const ext = path.extname(input);
+  const base = path.basename(input, ext);
+  const output = path.join(dir, `${base}_faceblur${ext}`);
+  emit(3, 'Preparing face blur…');
+  const pythonPath = await ensurePython((m) => emit(3, m));
+  await ensurePyPackage(pythonPath, 'cv2', 'opencv-python-headless', emit, 'face detection');
+  const scriptPath = path.join(app.getPath('temp'), `vesper_face_${Date.now()}.py`);
+  fs.writeFileSync(scriptPath, FACEBLUR_SCRIPT, 'utf-8');
+  emit(45, 'Detecting & blurring faces…');
+  await runPyScript(pythonPath, scriptPath, [input, output], () => {});
+  try { fs.unlinkSync(scriptPath); } catch {}
+  if (!fs.existsSync(output)) throw new Error('Face blur produced no output.');
+  return output;
 }
 
 // ── Code File Converter ───────────────────────────────────────────────────────

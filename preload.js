@@ -19,6 +19,12 @@ contextBridge.exposeInMainWorld('electronAPI', {
   convertFile: (params) => ipcRenderer.invoke('file:convert', params),
   bulkConvert: (params) => ipcRenderer.invoke('file:bulkConvert', params),
 
+  // Operation tools (crop, trim, merge, split, page numbers, …)
+  runTool: (params) => ipcRenderer.invoke('tool:op', params),
+
+  // Photo Editor export
+  editorExport: (params) => ipcRenderer.invoke('editor:export', params),
+
   // Clipboard
   clipboardSaveFile: (params) => ipcRenderer.invoke('clipboard:saveFile', params),
 

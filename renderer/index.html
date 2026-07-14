@@ -7,13 +7,10 @@
   <meta name="description" content="Convert 50+ file formats locally. No uploads. No limits. 100% private." />
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=Share+Tech+Mono&family=Outfit:wght@300;400;500;600;700&display=swap" rel="stylesheet" />
+  <link href="https://fonts.googleapis.com/css2?family=Bebas+Neue&family=DM+Mono:wght@400;500&family=Share+Tech+Mono&family=Outfit:wght@300;400;500;600;700;800&display=swap" rel="stylesheet" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body>
-
-  <!-- Scanline overlay for CRT hacker effect -->
-  <div class="scanline-overlay" aria-hidden="true"></div>
 
   <!-- Update popup -->
   <div class="update-popup" id="update-popup" style="display:none">
@@ -37,18 +34,6 @@
     </div>
   </div>
 
-  <!-- SVG noise filter -->
-  <svg class="svg-filters" aria-hidden="true">
-    <defs>
-      <filter id="noise">
-        <feTurbulence type="fractalNoise" baseFrequency="0.65" numOctaves="3" stitchTiles="stitch"/>
-        <feColorMatrix type="saturate" values="0"/>
-        <feBlend in="SourceGraphic" mode="overlay" result="blend"/>
-        <feComposite in="blend" in2="SourceGraphic" operator="in"/>
-      </filter>
-    </defs>
-  </svg>
-
   <!-- Custom Title Bar -->
   <header class="titlebar" id="titlebar">
     <div class="titlebar-logo">
@@ -56,13 +41,10 @@
         <path d="M12 2L20 7V17L12 22L4 17V7L12 2Z" stroke="currentColor" stroke-width="1.5" stroke-linejoin="round"/>
         <path d="M12 2V22M4 7L20 17M20 7L4 17" stroke="currentColor" stroke-width="0.75" stroke-opacity="0.5"/>
       </svg>
-      <span class="logo-text">Vesper CONVERTOR</span>
+      <span class="logo-text">Vesper</span>
     </div>
     <div class="titlebar-dev">Developer: Ayush.ue5</div>
     <div class="titlebar-controls">
-      <button class="wc-btn wc-settings" id="btn-settings" aria-label="Settings" title="Settings">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.3"><circle cx="8" cy="8" r="2.5"/><path d="M8 1.5v2M8 12.5v2M1.5 8h2M12.5 8h2M3.1 3.1l1.4 1.4M11.5 11.5l1.4 1.4M3.1 12.9l1.4-1.4M11.5 4.5l1.4-1.4"/></svg>
-      </button>
       <button class="wc-btn wc-min" id="btn-minimize" aria-label="Minimize" title="Minimize">
         <svg viewBox="0 0 12 12" fill="currentColor"><rect x="2" y="5.5" width="8" height="1" rx="0.5"/></svg>
       </button>
@@ -75,328 +57,492 @@
     </div>
   </header>
 
-  <!-- Settings Overlay -->
-  <div class="settings-overlay" id="settings-overlay">
-    <div class="settings-panel">
-      <div class="settings-header">
-        <span class="section-label">Settings</span>
-        <button class="settings-close-btn" id="settings-close-btn" aria-label="Close settings">
-          <svg viewBox="0 0 12 12" stroke="currentColor" stroke-width="1.5"><line x1="2" y1="2" x2="10" y2="10"/><line x1="10" y1="2" x2="2" y2="10"/></svg>
-        </button>
-      </div>
-      <div class="settings-body">
-        <div class="settings-info">
-          <div class="settings-info-row"><span class="settings-label">Developer</span><span class="settings-value">Ayush.ue5</span></div>
-          <div class="settings-info-row"><span class="settings-label">GitHub</span><a class="settings-link" id="github-link" href="https://github.com/AroseEditor/">github.com/AroseEditor/</a></div>
-        </div>
-        <div class="settings-divider"></div>
-        <div class="settings-group">
-          <div class="settings-group-title">Download Threads</div>
-          <div class="settings-slider-row">
-            <input type="range" class="settings-range" id="thread-slider" min="1" max="16" value="4"/>
-            <span class="settings-slider-value" id="thread-count">4</span>
-          </div>
-          <p class="option-hint">Parallel connections for direct link downloads. Higher = faster for large files.</p>
-        </div>
-        <div class="settings-divider"></div>
-        <div class="settings-group">
-          <div class="settings-group-title">yt-dlp Quality</div>
-          <select class="settings-select" id="ytdlp-quality">
-            <option value="best">Best (Lossless)</option>
-            <option value="1080" selected>High (1080p)</option>
-            <option value="720">Medium (720p)</option>
-            <option value="480">Low (480p)</option>
-            <option value="360">Very Low (360p)</option>
-            <option value="audio">Audio Only (Best)</option>
-          </select>
-          <p class="option-hint">Quality preset for YouTube, Instagram, Telegram and other video downloads.</p>
-        </div>
-        <div class="settings-divider"></div>
-        <div class="settings-group">
-          <div class="settings-group-title">Updates</div>
-          <button class="settings-update-btn" id="btn-check-updates">
-            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v14M5 9l7 7 7-7"/><path d="M5 21h14" stroke-linecap="round"/></svg>
-            <span id="btn-check-updates-text">Check for Updates</span>
-          </button>
-          <p class="option-hint" id="settings-app-version">Current version: loading…</p>
-        </div>
-      </div>
-    </div>
-  </div>
-
   <!-- No updates toast -->
   <div class="update-toast" id="update-toast" style="display:none">
     <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 6L9 17l-5-5"/></svg>
     <span>You're up to date!</span>
   </div>
 
-  <!-- Main Content -->
-  <main class="app-main" id="app-main">
+  <!-- App shell: left nav + tab content -->
+  <div class="app-shell">
 
-    <!-- Dropzone -->
-    <section class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Drop a file here or click to browse">
-      <svg class="dropzone-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
-        <rect x="6" y="6" width="36" height="36" rx="8" stroke-dasharray="4 3"/>
-        <path d="M24 16V32M16 24H32" stroke-width="2" stroke-linecap="round"/>
-      </svg>
-      <div class="dropzone-text">
-        <strong>Drop any file</strong> or click to browse · <strong>Ctrl+V</strong> to paste
-        <p class="dropzone-hint">Drop multiple files for bulk conversion · Right-click to select multiple · Images · Video · Audio · Documents · Data · 3D · Archives · Fonts · Config</p>
-      </div>
-    </section>
-
-    <section class="download-section" id="download-section">
-      <div class="download-input-wrapper">
-        <input type="text" class="download-url-input" id="download-url" placeholder="Paste URL — YouTube, Spotify, Instagram, Telegram, direct links…" autocomplete="off" spellcheck="false"/>
-        <select class="option-select" id="download-format" title="Download format" style="width:110px;flex-shrink:0;font-size:11px;">
-          <option value="mp4" selected>📹 MP4</option>
-          <option value="mp3">🎵 MP3</option>
-        </select>
-        <button class="download-go-btn" id="download-go-btn" title="Download">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 2v9M4 7l4 4 4-4"/><path d="M2 12v2h12v-2"/></svg>
-        </button>
-      </div>
-      <div class="download-source" id="download-source"></div>
-      <div class="download-back" id="download-back">← Back to file conversion</div>
-    </section>
-
-    <!-- Download Progress -->
-    <section class="download-progress-section" id="download-progress-section">
-      <div class="progress-header">
-        <span class="progress-label" id="dl-progress-label">Downloading…</span>
-        <span class="progress-pct" id="dl-speed">0 MB/s</span>
-      </div>
-      <div class="progress-track">
-        <div class="progress-bar" id="dl-progress-bar"></div>
-        <div class="progress-shimmer" aria-hidden="true"></div>
-      </div>
-      <div class="download-stats">
-        <span id="dl-progress-pct">0%</span>
-        <span id="dl-downloaded">0 MB / 0 MB</span>
-      </div>
-      <button class="cancel-btn" id="dl-cancel-btn">Cancel</button>
-    </section>
-
-    <!-- Download Link Hint -->
-    <div class="download-link-hint" id="download-link-hint">Want to download a link?</div>
-
-    <!-- File Info -->
-    <section class="file-info-section" id="file-info-section" aria-live="polite">
-      <div class="file-type-badge" id="file-type-badge">PNG</div>
-      <div class="file-meta">
-        <div class="file-info-inner">
-          <p class="file-name" id="file-name">example.png</p>
-          <p class="file-details" id="file-details">image/jpeg · 2.4 MB</p>
-        </div>
-        <!-- Source media info (video/audio only) -->
-        <div class="source-meta" id="source-meta" style="display:none">
-          <span class="source-tag" id="src-res" title="Source resolution"></span>
-          <span class="source-tag" id="src-fps" title="Source framerate"></span>
-          <span class="source-tag" id="src-br"  title="Source bitrate"></span>
-        </div>
-      </div>
-      <button class="file-clear-btn" id="file-clear-btn" aria-label="Clear file" title="Clear file">
-        <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg>
+    <!-- Left navigation rail -->
+    <nav class="side-nav" id="side-nav" aria-label="Primary">
+      <button class="nav-item active" data-tab="tools" id="nav-tools">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M14.7 6.3a4 4 0 0 0-5.4 5.4L3 18l3 3 6.3-6.3a4 4 0 0 0 5.4-5.4l-2.6 2.6-2.4-.6-.6-2.4 2.6-2.6z"/></svg>
+        <span>Tools</span>
       </button>
-    </section>
-
-    <!-- Format Selector (Searchable Dropdown) -->
-    <section class="format-section" id="format-section" aria-live="polite">
-      <div class="section-label">Convert to</div>
-      <div class="format-dropdown" id="format-dropdown">
-        <button class="format-dropdown-toggle" id="format-toggle" type="button">
-          <span class="format-toggle-text" id="format-toggle-text">Select output format…</span>
-          <svg class="format-toggle-arrow" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
-            <path d="M3 4.5L6 7.5L9 4.5"/>
-          </svg>
-        </button>
-        <div class="format-dropdown-menu" id="format-menu">
-          <input type="text" class="format-search" id="format-search" placeholder="Search formats..." autocomplete="off"/>
-          <ul class="format-options" id="format-options"></ul>
-        </div>
-      </div>
-    </section>
-
-    <!-- Options Panel -->
-    <section class="options-section" id="options-section" aria-live="polite">
-      <div class="options-header">
-        <span class="section-label">Options</span>
-        <button class="options-toggle" id="options-toggle" aria-expanded="false" aria-controls="options-body">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
-          <span>Customize</span>
-        </button>
-      </div>
-      <div class="options-body" id="options-body">
-
-        <!-- Image options -->
-        <div class="option-group" id="opt-image" style="display:none">
-          <div class="option-row">
-            <label class="option-label" for="opt-img-width">Width</label>
-            <input class="option-input" id="opt-img-width" type="number" placeholder="auto" min="1" />
-          </div>
-          <div class="option-row">
-            <label class="option-label" for="opt-img-height">Height</label>
-            <input class="option-input" id="opt-img-height" type="number" placeholder="auto" min="1" />
-          </div>
-          <div class="option-row">
-            <label class="option-label" for="opt-quality-preset-img">Quality</label>
-            <select class="option-select" id="opt-quality-preset-img">
-              <option value="lossless" selected>Lossless</option>
-              <option value="high">High</option>
-              <option value="medium">Medium</option>
-              <option value="low">Low</option>
-              <option value="verylow">Very Low</option>
-            </select>
-          </div>
-          <div class="option-row quality-slider-row" id="quality-slider-row" style="display:none">
-            <label class="option-label">Fine</label>
-            <input type="range" id="opt-quality" min="1" max="100" value="85" />
-            <span class="quality-display" id="quality-display">85</span>
-          </div>
-        </div>
-
-        <!-- Video options -->
-        <div class="option-group" id="opt-video" style="display:none">
-          <div class="option-row">
-            <label class="option-label" for="opt-vid-width">Width</label>
-            <input class="option-input" id="opt-vid-width" type="number" placeholder="source" min="1" />
-          </div>
-          <div class="option-row">
-            <label class="option-label" for="opt-vid-height">Height</label>
-            <input class="option-input" id="opt-vid-height" type="number" placeholder="source" min="1" />
-          </div>
-          <div class="option-row">
-            <label class="option-label" for="opt-framerate">FPS</label>
-            <input class="option-input" id="opt-framerate" type="number" placeholder="source" min="1" max="240" />
-          </div>
-          <div class="option-row">
-            <label class="option-label" for="opt-quality-preset-vid">Quality</label>
-            <select class="option-select" id="opt-quality-preset-vid">
-              <option value="lossless" selected>Lossless (CRF 0)</option>
-              <option value="high">High (CRF 16)</option>
-              <option value="medium">Medium (CRF 23)</option>
-              <option value="low">Low (CRF 28)</option>
-              <option value="verylow">Very Low (CRF 35)</option>
-            </select>
-          </div>
-        </div>
-
-        <!-- Audio options -->
-        <div class="option-group" id="opt-audio" style="display:none">
-          <div class="option-row">
-            <label class="option-label" for="opt-bitrate">Bitrate</label>
-            <select class="option-select" id="opt-bitrate">
-              <option value="64k">64 kbps</option>
-              <option value="128k">128 kbps</option>
-              <option value="192k">192 kbps</option>
-              <option value="256k">256 kbps</option>
-              <option value="320k" selected>320 kbps</option>
-            </select>
-          </div>
-          <p class="option-hint" id="audio-lossless-hint">FLAC and WAV output are always lossless — bitrate setting ignored.</p>
-        </div>
-
-        <!-- Fix / Platform Compatibility Options -->
-        <div class="option-group" id="opt-fix" style="display:none">
-          <div class="option-row">
-            <label class="option-label" for="opt-fix-platform">Fix for</label>
-            <select class="option-select" id="opt-fix-platform" aria-label="Target platform">
-              <option value="whatsapp" selected>WhatsApp — H.264 Main, 1080p, 30fps</option>
-              <option value="instagram">Instagram — H.264 High, 1080p, 30fps</option>
-              <option value="youtube">YouTube — H.264 High, 4K, 60fps</option>
-              <option value="discord">Discord — H.264 Main, 1080p, 30fps</option>
-              <option value="mobile">Mobile — H.264 Baseline, 720p, 30fps</option>
-            </select>
-          </div>
-          <p class="option-hint">Re-encodes to MP4 with H.264 + AAC, correct pixel format, faststart flag, and platform-safe resolution/bitrate caps.</p>
-        </div>
-
-        <!-- Extraction options -->
-        <div class="option-group" id="opt-extract" style="display:none">
-          <div class="option-row">
-            <label class="option-label" for="opt-ocr-images">Image to Text</label>
-            <label class="option-toggle">
-              <input type="checkbox" id="opt-ocr-images" />
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            </label>
-          </div>
-          <p class="option-hint">Uses OCR to extract text from scanned/image-based pages. Slower but catches text in images.</p>
-          <div class="option-row" style="margin-top:8px">
-            <label class="option-label" for="opt-divide-pages">Page Separation</label>
-            <label class="option-toggle">
-              <input type="checkbox" id="opt-divide-pages" />
-              <span class="toggle-track"><span class="toggle-thumb"></span></span>
-            </label>
-          </div>
-          <p class="option-hint">Adds ==Page N== dividers between each page in the output text. For spreadsheets, divides by sheet name.</p>
-        </div>
-
-        <!-- Watermark options -->
-        <div class="option-group" id="opt-watermark" style="display:none">
-          <div class="option-row">
-            <label class="option-label" for="opt-watermark-text">Watermark Text</label>
-            <input class="option-input" id="opt-watermark-text" type="text" placeholder="CONFIDENTIAL" value="" style="flex:1" />
-          </div>
-          <div class="option-row" style="margin-top:8px">
-            <label class="option-label" for="opt-watermark-opacity">Opacity</label>
-            <input type="range" id="opt-watermark-opacity" min="0" max="100" value="15" style="flex:1" />
-            <span class="quality-display" id="watermark-opacity-display">0.15</span>
-          </div>
-          <p class="option-hint">Stamps diagonal text across every page of the PDF. Lower opacity = more subtle.</p>
-        </div>
-
-        <!-- Denoise options/status -->
-        <div class="option-group" id="opt-denoise" style="display:none">
-          <div class="option-row" style="flex-direction: column; align-items: flex-start; width: 100%; gap: 6px;">
-            <label class="option-label">Denoise Status</label>
-            <div id="denoise-status-text" class="option-hint" style="margin: 0; opacity: 1;">Ready. Select "CONVERT" to start background noise removal.</div>
-          </div>
-        </div>
-
-      </div>
-    </section>
-
-    <!-- Convert Button -->
-    <section class="convert-section" id="convert-section">
-      <button class="convert-btn" id="convert-btn" disabled aria-label="Convert file">
-        <span class="convert-btn-shimmer" aria-hidden="true"></span>
-        <svg class="convert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
-          <path d="M7 16V4M7 4L3 8M7 4L11 8" stroke-linecap="round" stroke-linejoin="round"/>
-          <path d="M17 8V20M17 20L21 16M17 20L13 16" stroke-linecap="round" stroke-linejoin="round"/>
-        </svg>
-        <span class="convert-btn-text">CONVERT</span>
+      <button class="nav-item" data-tab="download" id="nav-download">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 3v12M7 10l5 5 5-5" stroke-linecap="round" stroke-linejoin="round"/><path d="M4 19h16" stroke-linecap="round"/></svg>
+        <span>Download</span>
       </button>
-    </section>
-
-    <!-- Progress -->
-    <section class="progress-section" id="progress-section" aria-live="assertive">
-      <div class="progress-header">
-        <span class="progress-label" id="progress-label">Converting…</span>
-        <span class="progress-pct"   id="progress-pct">0%</span>
+      <button class="nav-item" data-tab="editor" id="nav-editor">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 15l5-5 4 4 3-3 6 6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="8.5" r="1.4"/></svg>
+        <span>Photo Editor</span>
+      </button>
+      <button class="nav-item" data-tab="settings" id="nav-settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3.2"/><path d="M12 2v3M12 19v3M2 12h3M19 12h3M4.9 4.9l2.1 2.1M17 17l2.1 2.1M4.9 19.1L7 17M17 7l2.1-2.1"/></svg>
+        <span>Settings</span>
+      </button>
+      <div class="side-nav-footer">
+        <span class="side-nav-version" id="settings-app-version">v—</span>
       </div>
-      <div class="progress-track">
-        <div class="progress-bar"     id="progress-bar"></div>
-        <div class="progress-shimmer" aria-hidden="true"></div>
-      </div>
-      <button class="cancel-btn" id="cancel-btn">Cancel</button>
-    </section>
+    </nav>
 
-    <!-- History -->
-    <section class="history-section" id="history-section">
-      <div class="history-header">
-        <div class="section-label">Recent Conversions</div>
-        <button class="history-clear-btn" id="history-clear-btn" aria-label="Clear history" title="Clear history">
-          <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M2.5 4h11M5.5 4V3a1 1 0 011-1h3a1 1 0 011 1v1M6.5 7v4M9.5 7v4M3.5 4l.7 8.5a1 1 0 001 .9h5.6a1 1 0 001-.9L12.5 4"/>
-          </svg>
-        </button>
-      </div>
-      <ul class="history-list" id="history-list" aria-label="Conversion history" role="list">
-        <li class="history-empty">No conversions yet — drop a file to get started</li>
-      </ul>
-    </section>
+    <!-- Tab content -->
+    <main class="tab-content" id="app-main">
 
-  </main>
+      <!-- ═══════════════ TOOLS TAB ═══════════════ -->
+      <section class="tab-panel active" id="tab-tools" role="tabpanel">
+
+        <!-- Catalog view -->
+        <div class="tools-catalog" id="tools-catalog">
+          <div class="catalog-hero">
+            <div class="catalog-hero-text">
+              <h1 class="catalog-title">Tools</h1>
+              <p class="catalog-sub">Pick a tool, then add your files — or drop files first to see what fits.</p>
+            </div>
+            <div class="catalog-search-wrap">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.6"><circle cx="7" cy="7" r="5"/><path d="M11 11l3 3" stroke-linecap="round"/></svg>
+              <input type="text" id="tool-search" class="catalog-search" placeholder="Search tools…" autocomplete="off" spellcheck="false" />
+            </div>
+          </div>
+
+          <!-- Quick drop banner -->
+          <div class="quick-drop" id="quick-drop" tabindex="0" role="button" aria-label="Drop files here or click to browse">
+            <svg class="quick-drop-icon" viewBox="0 0 32 32" fill="none" stroke="currentColor" stroke-width="1.6" aria-hidden="true"><rect x="4" y="4" width="24" height="24" rx="6" stroke-dasharray="4 3"/><path d="M16 11v10M11 16h10" stroke-width="2" stroke-linecap="round"/></svg>
+            <div class="quick-drop-text"><strong>Drop files</strong> or click to browse · <strong>Ctrl+V</strong> to paste</div>
+          </div>
+
+          <div class="cat-chips" id="cat-chips"></div>
+          <div class="tool-grid" id="tool-grid"></div>
+        </div>
+
+        <!-- Workspace view (a tool is active) -->
+        <div class="tools-workspace" id="tools-workspace" style="display:none">
+          <div class="workspace-head">
+            <button class="workspace-back" id="workspace-back">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M10 3L5 8l5 5" stroke-linecap="round" stroke-linejoin="round"/></svg>
+              All tools
+            </button>
+            <div class="workspace-tool" id="workspace-tool-label">Tool</div>
+          </div>
+
+          <!-- Dropzone -->
+          <section class="dropzone" id="dropzone" tabindex="0" role="button" aria-label="Drop a file here or click to browse">
+            <svg class="dropzone-icon" viewBox="0 0 48 48" fill="none" stroke="currentColor" stroke-width="1.5" aria-hidden="true">
+              <rect x="6" y="6" width="36" height="36" rx="8" stroke-dasharray="4 3"/>
+              <path d="M24 16V32M16 24H32" stroke-width="2" stroke-linecap="round"/>
+            </svg>
+            <div class="dropzone-text">
+              <strong>Drop your file</strong> or click to browse · <strong>Ctrl+V</strong> to paste
+              <p class="dropzone-hint">Drop multiple files for bulk conversion · Right-click to select multiple</p>
+            </div>
+          </section>
+
+          <!-- Multi-file preview strip -->
+          <div class="file-previews" id="file-previews" style="display:none"></div>
+
+          <!-- File Info -->
+          <section class="file-info-section" id="file-info-section" aria-live="polite">
+            <div class="file-type-badge" id="file-type-badge">PNG</div>
+            <div class="file-meta">
+              <div class="file-info-inner">
+                <p class="file-name" id="file-name">example.png</p>
+                <p class="file-details" id="file-details">image/jpeg · 2.4 MB</p>
+              </div>
+              <div class="source-meta" id="source-meta" style="display:none">
+                <span class="source-tag" id="src-res" title="Source resolution"></span>
+                <span class="source-tag" id="src-fps" title="Source framerate"></span>
+                <span class="source-tag" id="src-br"  title="Source bitrate"></span>
+              </div>
+            </div>
+            <button class="file-clear-btn" id="file-clear-btn" aria-label="Clear file" title="Clear file">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8"><line x1="3" y1="3" x2="13" y2="13"/><line x1="13" y1="3" x2="3" y2="13"/></svg>
+            </button>
+          </section>
+
+          <!-- Format Selector (Searchable Dropdown) -->
+          <section class="format-section" id="format-section" aria-live="polite">
+            <div class="section-label">Convert to</div>
+            <div class="format-dropdown" id="format-dropdown">
+              <button class="format-dropdown-toggle" id="format-toggle" type="button">
+                <span class="format-toggle-text" id="format-toggle-text">Select output format…</span>
+                <svg class="format-toggle-arrow" viewBox="0 0 12 12" fill="none" stroke="currentColor" stroke-width="1.5">
+                  <path d="M3 4.5L6 7.5L9 4.5"/>
+                </svg>
+              </button>
+              <div class="format-dropdown-menu" id="format-menu">
+                <input type="text" class="format-search" id="format-search" placeholder="Search formats..." autocomplete="off"/>
+                <ul class="format-options" id="format-options"></ul>
+              </div>
+            </div>
+          </section>
+
+          <!-- Options Panel -->
+          <section class="options-section" id="options-section" aria-live="polite">
+            <div class="options-header">
+              <span class="section-label">Options</span>
+              <button class="options-toggle" id="options-toggle" aria-expanded="false" aria-controls="options-body">
+                <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5"><path d="M2 4h12M4 8h8M6 12h4"/></svg>
+                <span>Customize</span>
+              </button>
+            </div>
+            <div class="options-body" id="options-body">
+
+              <!-- Image options -->
+              <div class="option-group" id="opt-image" style="display:none">
+                <div class="option-row">
+                  <label class="option-label" for="opt-img-width">Width</label>
+                  <input class="option-input" id="opt-img-width" type="number" placeholder="auto" min="1" />
+                </div>
+                <div class="option-row">
+                  <label class="option-label" for="opt-img-height">Height</label>
+                  <input class="option-input" id="opt-img-height" type="number" placeholder="auto" min="1" />
+                </div>
+                <div class="option-row">
+                  <label class="option-label" for="opt-quality-preset-img">Quality</label>
+                  <select class="option-select" id="opt-quality-preset-img">
+                    <option value="lossless" selected>Lossless</option>
+                    <option value="high">High</option>
+                    <option value="medium">Medium</option>
+                    <option value="low">Low</option>
+                    <option value="verylow">Very Low</option>
+                  </select>
+                </div>
+                <div class="option-row quality-slider-row" id="quality-slider-row" style="display:none">
+                  <label class="option-label">Fine</label>
+                  <input type="range" id="opt-quality" min="1" max="100" value="85" />
+                  <span class="quality-display" id="quality-display">85</span>
+                </div>
+              </div>
+
+              <!-- Video options -->
+              <div class="option-group" id="opt-video" style="display:none">
+                <div class="option-row">
+                  <label class="option-label" for="opt-vid-width">Width</label>
+                  <input class="option-input" id="opt-vid-width" type="number" placeholder="source" min="1" />
+                </div>
+                <div class="option-row">
+                  <label class="option-label" for="opt-vid-height">Height</label>
+                  <input class="option-input" id="opt-vid-height" type="number" placeholder="source" min="1" />
+                </div>
+                <div class="option-row">
+                  <label class="option-label" for="opt-framerate">FPS</label>
+                  <input class="option-input" id="opt-framerate" type="number" placeholder="source" min="1" max="240" />
+                </div>
+                <div class="option-row">
+                  <label class="option-label" for="opt-quality-preset-vid">Quality</label>
+                  <select class="option-select" id="opt-quality-preset-vid">
+                    <option value="lossless" selected>Lossless (CRF 0)</option>
+                    <option value="high">High (CRF 16)</option>
+                    <option value="medium">Medium (CRF 23)</option>
+                    <option value="low">Low (CRF 28)</option>
+                    <option value="verylow">Very Low (CRF 35)</option>
+                  </select>
+                </div>
+              </div>
+
+              <!-- Audio options -->
+              <div class="option-group" id="opt-audio" style="display:none">
+                <div class="option-row">
+                  <label class="option-label" for="opt-bitrate">Bitrate</label>
+                  <select class="option-select" id="opt-bitrate">
+                    <option value="64k">64 kbps</option>
+                    <option value="128k">128 kbps</option>
+                    <option value="192k">192 kbps</option>
+                    <option value="256k">256 kbps</option>
+                    <option value="320k" selected>320 kbps</option>
+                  </select>
+                </div>
+                <p class="option-hint" id="audio-lossless-hint">FLAC and WAV output are always lossless — bitrate setting ignored.</p>
+              </div>
+
+              <!-- Fix / Platform Compatibility Options -->
+              <div class="option-group" id="opt-fix" style="display:none">
+                <div class="option-row">
+                  <label class="option-label" for="opt-fix-platform">Fix for</label>
+                  <select class="option-select" id="opt-fix-platform" aria-label="Target platform">
+                    <option value="whatsapp" selected>WhatsApp — H.264 Main, 1080p, 30fps</option>
+                    <option value="instagram">Instagram — H.264 High, 1080p, 30fps</option>
+                    <option value="youtube">YouTube — H.264 High, 4K, 60fps</option>
+                    <option value="discord">Discord — H.264 Main, 1080p, 30fps</option>
+                    <option value="mobile">Mobile — H.264 Baseline, 720p, 30fps</option>
+                  </select>
+                </div>
+                <p class="option-hint">Re-encodes to MP4 with H.264 + AAC, correct pixel format, faststart flag, and platform-safe resolution/bitrate caps.</p>
+              </div>
+
+              <!-- Extraction options -->
+              <div class="option-group" id="opt-extract" style="display:none">
+                <div class="option-row">
+                  <label class="option-label" for="opt-ocr-images">Image to Text</label>
+                  <label class="option-toggle">
+                    <input type="checkbox" id="opt-ocr-images" />
+                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                  </label>
+                </div>
+                <p class="option-hint">Uses OCR to extract text from scanned/image-based pages. Slower but catches text in images.</p>
+                <div class="option-row" style="margin-top:8px">
+                  <label class="option-label" for="opt-divide-pages">Page Separation</label>
+                  <label class="option-toggle">
+                    <input type="checkbox" id="opt-divide-pages" />
+                    <span class="toggle-track"><span class="toggle-thumb"></span></span>
+                  </label>
+                </div>
+                <p class="option-hint">Adds ==Page N== dividers between each page in the output text. For spreadsheets, divides by sheet name.</p>
+              </div>
+
+              <!-- Watermark options -->
+              <div class="option-group" id="opt-watermark" style="display:none">
+                <div class="option-row">
+                  <label class="option-label" for="opt-watermark-text">Watermark Text</label>
+                  <input class="option-input" id="opt-watermark-text" type="text" placeholder="CONFIDENTIAL" value="" style="flex:1" />
+                </div>
+                <div class="option-row" style="margin-top:8px">
+                  <label class="option-label" for="opt-watermark-opacity">Opacity</label>
+                  <input type="range" id="opt-watermark-opacity" min="0" max="100" value="15" style="flex:1" />
+                  <span class="quality-display" id="watermark-opacity-display">0.15</span>
+                </div>
+                <p class="option-hint">Stamps diagonal text across every page of the PDF. Lower opacity = more subtle.</p>
+              </div>
+
+              <!-- Denoise options/status -->
+              <div class="option-group" id="opt-denoise" style="display:none">
+                <div class="option-row" style="flex-direction: column; align-items: flex-start; width: 100%; gap: 6px;">
+                  <label class="option-label">Denoise Status</label>
+                  <div id="denoise-status-text" class="option-hint" style="margin: 0; opacity: 1;">Ready. Select "CONVERT" to start background noise removal.</div>
+                </div>
+              </div>
+
+            </div>
+          </section>
+
+          <!-- Operation-tool panel (crop, trim, merge, page numbers, …) -->
+          <section class="op-panel" id="op-panel" style="display:none">
+            <div class="section-label" id="op-panel-title">Options</div>
+            <div class="op-form" id="op-form"></div>
+            <button class="convert-btn" id="op-run-btn" aria-label="Run tool">
+              <span class="convert-btn-shimmer" aria-hidden="true"></span>
+              <svg class="convert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true"><path d="M5 3l14 9-14 9V3z" stroke-linejoin="round"/></svg>
+              <span class="convert-btn-text">RUN</span>
+            </button>
+          </section>
+
+          <!-- Convert Button -->
+          <section class="convert-section" id="convert-section">
+            <button class="convert-btn" id="convert-btn" disabled aria-label="Convert file">
+              <span class="convert-btn-shimmer" aria-hidden="true"></span>
+              <svg class="convert-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+                <path d="M7 16V4M7 4L3 8M7 4L11 8" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M17 8V20M17 20L21 16M17 20L13 16" stroke-linecap="round" stroke-linejoin="round"/>
+              </svg>
+              <span class="convert-btn-text">CONVERT</span>
+            </button>
+          </section>
+
+          <!-- Progress -->
+          <section class="progress-section" id="progress-section" aria-live="assertive">
+            <div class="progress-header">
+              <span class="progress-label" id="progress-label">Converting…</span>
+              <span class="progress-pct"   id="progress-pct">0%</span>
+            </div>
+            <div class="progress-track">
+              <div class="progress-bar"     id="progress-bar"></div>
+              <div class="progress-shimmer" aria-hidden="true"></div>
+            </div>
+            <button class="cancel-btn" id="cancel-btn">Cancel</button>
+          </section>
+        </div>
+
+        <!-- History -->
+        <section class="history-section" id="history-section">
+          <div class="history-header">
+            <div class="section-label">Recent Conversions</div>
+            <button class="history-clear-btn" id="history-clear-btn" aria-label="Clear history" title="Clear history">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M2.5 4h11M5.5 4V3a1 1 0 011-1h3a1 1 0 011 1v1M6.5 7v4M9.5 7v4M3.5 4l.7 8.5a1 1 0 001 .9h5.6a1 1 0 001-.9L12.5 4"/>
+              </svg>
+            </button>
+          </div>
+          <ul class="history-list" id="history-list" aria-label="Conversion history" role="list">
+            <li class="history-empty">No conversions yet — pick a tool to get started</li>
+          </ul>
+        </section>
+
+      </section>
+
+      <!-- ═══════════════ DOWNLOAD TAB ═══════════════ -->
+      <section class="tab-panel" id="tab-download" role="tabpanel">
+        <div class="panel-hero">
+          <h1 class="catalog-title">Download from URL</h1>
+          <p class="catalog-sub">YouTube, Spotify, Instagram, Telegram, TikTok & direct links — saved locally.</p>
+        </div>
+
+        <section class="download-section" id="download-section">
+          <div class="download-input-wrapper">
+            <input type="text" class="download-url-input" id="download-url" placeholder="Paste URL — YouTube, Spotify, Instagram, Telegram, direct links…" autocomplete="off" spellcheck="false"/>
+            <select class="option-select" id="download-format" title="Download format" style="width:110px;flex-shrink:0;font-size:12px;">
+              <option value="mp4" selected>📹 MP4</option>
+              <option value="mp3">🎵 MP3</option>
+            </select>
+            <button class="download-go-btn" id="download-go-btn" title="Download">
+              <svg viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round"><path d="M8 2v9M4 7l4 4 4-4"/><path d="M2 12v2h12v-2"/></svg>
+            </button>
+          </div>
+          <div class="download-source" id="download-source"></div>
+        </section>
+
+        <!-- Download Progress -->
+        <section class="download-progress-section" id="download-progress-section">
+          <div class="progress-header">
+            <span class="progress-label" id="dl-progress-label">Downloading…</span>
+            <span class="progress-pct" id="dl-speed">0 MB/s</span>
+          </div>
+          <div class="progress-track">
+            <div class="progress-bar" id="dl-progress-bar"></div>
+            <div class="progress-shimmer" aria-hidden="true"></div>
+          </div>
+          <div class="download-stats">
+            <span id="dl-progress-pct">0%</span>
+            <span id="dl-downloaded">0 MB / 0 MB</span>
+          </div>
+          <button class="cancel-btn" id="dl-cancel-btn">Cancel</button>
+        </section>
+      </section>
+
+      <!-- ═══════════════ PHOTO EDITOR TAB ═══════════════ -->
+      <section class="tab-panel" id="tab-editor" role="tabpanel">
+        <div class="editor-shell" id="editor-shell">
+          <div class="editor-topbar">
+            <span class="editor-brand">Photo Editor</span>
+            <button class="ed-btn" id="ed-open">Open Image</button>
+            <button class="ed-btn" id="ed-new">New Canvas</button>
+            <span class="ed-sep"></span>
+            <button class="ed-btn" id="ed-undo" title="Undo (Ctrl+Z)">Undo</button>
+            <button class="ed-btn" id="ed-redo" title="Redo (Ctrl+Y)">Redo</button>
+            <span class="ed-spacer"></span>
+            <button class="ed-btn ed-primary" id="ed-export">Export PNG</button>
+          </div>
+
+          <div class="editor-body">
+            <!-- Tools -->
+            <div class="editor-tools">
+              <button class="ed-tool active" data-tool="brush" title="Brush (B)">✏️</button>
+              <button class="ed-tool" data-tool="eraser" title="Eraser (E)">🩹</button>
+              <button class="ed-tool" data-tool="line" title="Line">╱</button>
+              <button class="ed-tool" data-tool="rect" title="Rectangle">▭</button>
+              <button class="ed-tool" data-tool="ellipse" title="Ellipse">◯</button>
+              <button class="ed-tool" data-tool="fill" title="Fill layer">🪣</button>
+              <button class="ed-tool" data-tool="text" title="Text">T</button>
+              <div class="ed-tool-controls">
+                <label>Size <span id="ed-size-val">12</span></label>
+                <input type="range" id="ed-size" min="1" max="120" value="12" class="settings-range"/>
+                <label>Opacity <span id="ed-opacity-val">100%</span></label>
+                <input type="range" id="ed-opacity" min="1" max="100" value="100" class="settings-range"/>
+                <label>Color</label>
+                <input type="color" id="ed-color" value="#a855f7" class="ed-color"/>
+              </div>
+            </div>
+
+            <!-- Canvas -->
+            <div class="editor-canvas-wrap" id="ed-canvas-wrap">
+              <canvas id="ed-canvas" width="900" height="560"></canvas>
+              <div class="editor-empty" id="ed-empty">
+                <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.3"><rect x="3" y="3" width="18" height="18" rx="3"/><path d="M3 15l5-5 4 4 3-3 6 6" stroke-linecap="round" stroke-linejoin="round"/><circle cx="9" cy="8.5" r="1.4"/></svg>
+                <span>Open an image or start a new canvas</span>
+              </div>
+            </div>
+
+            <!-- Layers + adjustments -->
+            <div class="editor-side">
+              <div class="ed-panel">
+                <div class="ed-panel-head"><span>Layers</span><button class="ed-mini" id="ed-add-layer" title="Add layer">＋</button></div>
+                <ul class="ed-layers" id="ed-layers"></ul>
+                <div class="ed-control"><label>Opacity <span id="ed-layer-opacity-val">100%</span></label><input type="range" id="ed-layer-opacity" min="0" max="100" value="100" class="settings-range"/></div>
+                <div class="ed-layer-actions">
+                  <button class="ed-mini" id="ed-layer-up" title="Move up">↑</button>
+                  <button class="ed-mini" id="ed-layer-down" title="Move down">↓</button>
+                  <button class="ed-mini ed-danger" id="ed-layer-del" title="Delete layer">🗑</button>
+                </div>
+              </div>
+
+              <div class="ed-panel">
+                <div class="ed-panel-head"><span>Adjustments</span></div>
+                <div class="ed-control"><label>Brightness <span id="ed-brightness-val">0</span></label><input type="range" id="ed-brightness" min="-100" max="100" value="0" class="settings-range"/></div>
+                <div class="ed-control"><label>Contrast <span id="ed-contrast-val">0</span></label><input type="range" id="ed-contrast" min="-100" max="100" value="0" class="settings-range"/></div>
+                <div class="ed-control"><label>Saturation <span id="ed-saturation-val">0</span></label><input type="range" id="ed-saturation" min="-100" max="100" value="0" class="settings-range"/></div>
+                <button class="ed-btn ed-full" id="ed-apply-adjust">Apply to layer</button>
+                <div class="ed-filters">
+                  <button class="ed-chip" data-filter="grayscale">Grayscale</button>
+                  <button class="ed-chip" data-filter="invert">Invert</button>
+                  <button class="ed-chip" data-filter="sepia">Sepia</button>
+                  <button class="ed-chip" data-filter="blur">Blur</button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <!-- ═══════════════ SETTINGS TAB ═══════════════ -->
+      <section class="tab-panel" id="tab-settings" role="tabpanel">
+        <div class="panel-hero">
+          <h1 class="catalog-title">Settings</h1>
+          <p class="catalog-sub">Everything runs locally. Your files never leave this device.</p>
+        </div>
+
+        <div class="settings-page">
+          <div class="settings-card">
+            <div class="settings-info">
+              <div class="settings-info-row"><span class="settings-label">Developer</span><span class="settings-value">Ayush.ue5</span></div>
+              <div class="settings-info-row"><span class="settings-label">GitHub</span><a class="settings-link" id="github-link" href="https://github.com/AroseEditor/">github.com/AroseEditor/</a></div>
+            </div>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-group-title">Language</div>
+            <select class="settings-select" id="app-language">
+              <option value="en" selected>English</option>
+            </select>
+            <p class="option-hint">More languages arrive in a future update. English is the default.</p>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-group-title">Download Threads</div>
+            <div class="settings-slider-row">
+              <input type="range" class="settings-range" id="thread-slider" min="1" max="16" value="4"/>
+              <span class="settings-slider-value" id="thread-count">4</span>
+            </div>
+            <p class="option-hint">Parallel connections for direct link downloads. Higher = faster for large files.</p>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-group-title">yt-dlp Quality</div>
+            <select class="settings-select" id="ytdlp-quality">
+              <option value="best">Best (Lossless)</option>
+              <option value="1080" selected>High (1080p)</option>
+              <option value="720">Medium (720p)</option>
+              <option value="480">Low (480p)</option>
+              <option value="360">Very Low (360p)</option>
+              <option value="audio">Audio Only (Best)</option>
+            </select>
+            <p class="option-hint">Quality preset for YouTube, Instagram, Telegram and other video downloads.</p>
+          </div>
+
+          <div class="settings-card">
+            <div class="settings-group-title">Updates</div>
+            <button class="settings-update-btn" id="btn-check-updates">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v14M5 9l7 7 7-7"/><path d="M5 21h14" stroke-linecap="round"/></svg>
+              <span id="btn-check-updates-text">Check for Updates</span>
+            </button>
+            <p class="option-hint" id="settings-version-hint">Current version: loading…</p>
+          </div>
+        </div>
+      </section>
+
+    </main>
+  </div>
 
   <!-- Mask Editor Overlay for Background Removal -->
   <div class="mask-editor-overlay" id="mask-editor-overlay">
@@ -537,6 +683,8 @@
     </div>
   </div>
 
+  <script src="catalog.js"></script>
   <script src="app.js"></script>
+  <script src="editor.js"></script>
 </body>
 </html>

@@ -1,7 +1,7 @@
 {
   "name": "Vesper-Convertor",
-  "version": "2.00.0",
-  "description": "Local-first file conversion. 50+ formats. Zero uploads. Zero limits.",
+  "version": "2.51.0",
+  "description": "Local-first file conversion, editing & AI. 80+ tools. Zero uploads. Zero limits.",
   "author": "Ayush.ue5",
   "main": "main.js",
   "repository": {
