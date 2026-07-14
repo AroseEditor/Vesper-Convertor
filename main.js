@@ -3846,9 +3846,63 @@ async function runToolOp(op, filePaths, o, emit) {
       return outDir;
     }
 
+    case 'img-meme': {
+      const s = r('sharp');
+      const meta = await s(input).metadata();
+      const MW = meta.width || 800, MH = meta.height || 600;
+      const fsz = Math.round(MW / 10);
+      const stroke = Math.max(2, fsz / 14);
+      const mk = (txt, y) => txt ? `<text x="50%" y="${y}" text-anchor="middle" dominant-baseline="middle" font-family="Impact, 'Arial Black', sans-serif" font-size="${fsz}" font-weight="bold" fill="#ffffff" stroke="#000000" stroke-width="${stroke}" paint-order="stroke">${escHtml(String(txt).toUpperCase())}</text>` : '';
+      const svg = `<svg width="${MW}" height="${MH}" xmlns="http://www.w3.org/2000/svg">${mk(o.top, fsz * 0.9)}${mk(o.bottom, MH - fsz * 0.6)}</svg>`;
+      const output = out('meme');
+      await encodeSharpTo(s(input, { failOnError: false }).composite([{ input: Buffer.from(svg) }]), output);
+      return output;
+    }
+    case 'img-passport': {
+      const size = 600; // 2×2 in @ 300 dpi
+      const output = out('passport', 'jpg');
+      await r('sharp')(input, { failOnError: false }).rotate().resize(size, size, { fit: 'contain', background: '#ffffff' }).flatten({ background: '#ffffff' }).jpeg({ quality: 95 }).toFile(output);
+      return output;
+    }
+    case 'gif-frames': {
+      const outDir = path.join(dir, `${base}_frames`); fs.mkdirSync(outDir, { recursive: true });
+      await ffmpegRun(['-i', input, path.join(outDir, `${base}_%04d.png`)], emit, null);
+      return outDir;
+    }
+    case 'img-duplicates': {
+      const s = r('sharp');
+      const hashes = [];
+      for (let i = 0; i < filePaths.length; i++) {
+        try {
+          const buf = await s(filePaths[i], { failOnError: false }).greyscale().resize(8, 8, { fit: 'fill' }).raw().toBuffer();
+          const avg = buf.reduce((a, b) => a + b, 0) / buf.length;
+          let h = ''; for (const v of buf) h += v > avg ? '1' : '0';
+          hashes.push({ file: filePaths[i], hash: h });
+        } catch {}
+        emit(10 + Math.round((i / filePaths.length) * 80), `Hashing ${i + 1}/${filePaths.length}…`);
+      }
+      const used = new Set(), groups = [];
+      for (let i = 0; i < hashes.length; i++) {
+        if (used.has(i)) continue;
+        const g = [hashes[i].file]; used.add(i);
+        for (let j = i + 1; j < hashes.length; j++) {
+          if (used.has(j)) continue;
+          let d = 0; for (let k = 0; k < 64; k++) if (hashes[i].hash[k] !== hashes[j].hash[k]) d++;
+          if (d <= 5) { g.push(hashes[j].file); used.add(j); }
+        }
+        if (g.length > 1) groups.push(g);
+      }
+      const report = path.join(path.dirname(filePaths[0]), 'duplicates_report.txt');
+      fs.writeFileSync(report, groups.length
+        ? groups.map((g, i) => `Group ${i + 1} (${g.length} similar):\n` + g.map(f => '  ' + path.basename(f)).join('\n')).join('\n\n')
+        : 'No visually-similar duplicates found.', 'utf-8');
+      return report;
+    }
+
     /* ---------- Local AI (Python) ---------- */
     case 'transcribe':  return await runTranscribe(input, ext, o, emit);
     case 'faceblur':    return await runFaceBlur(input, emit);
+    case 'colorize':    return await runColorize(input, emit);
 
     default:
       throw new Error(`Unknown tool operation: ${op}`);
@@ -3948,6 +4002,60 @@ async function runFaceBlur(input, emit) {
   await runPyScript(pythonPath, scriptPath, [input, output], () => {});
   try { fs.unlinkSync(scriptPath); } catch {}
   if (!fs.existsSync(output)) throw new Error('Face blur produced no output.');
+  return output;
+}
+
+// Zhang et al. (2016) colorization — CPU inference via OpenCV DNN (Caffe model).
+const COLORIZE_SCRIPT = [
+  'import sys, numpy as np, cv2',
+  'proto, model, pts, inp, out = sys.argv[1:6]',
+  'net = cv2.dnn.readNetFromCaffe(proto, model)',
+  'hull = np.load(pts).transpose().reshape(2, 313, 1, 1).astype(np.float32)',
+  "net.getLayer(net.getLayerId('class8_ab')).blobs = [hull]",
+  "net.getLayer(net.getLayerId('conv8_313_rh')).blobs = [np.full([1, 313], 2.606, dtype=np.float32)]",
+  'img = cv2.imread(inp)',
+  'h, w = img.shape[:2]',
+  'lab = cv2.cvtColor((img / 255.0).astype(np.float32), cv2.COLOR_BGR2LAB)',
+  'L = cv2.resize(lab[:, :, 0], (224, 224)) - 50',
+  'net.setInput(cv2.dnn.blobFromImage(L))',
+  'ab = net.forward()[0].transpose(1, 2, 0)',
+  'ab = cv2.resize(ab, (w, h))',
+  'out_lab = np.concatenate((lab[:, :, 0][:, :, np.newaxis], ab), axis=2)',
+  'bgr = np.clip(cv2.cvtColor(out_lab, cv2.COLOR_LAB2BGR), 0, 1)',
+  "cv2.imwrite(out, (bgr * 255).astype('uint8'))",
+].join('\n');
+
+async function ensureColorizeModel(dir, emit) {
+  fs.mkdirSync(dir, { recursive: true });
+  const proto = path.join(dir, 'colorization_deploy_v2.prototxt');
+  const model = path.join(dir, 'colorization_release_v2.caffemodel');
+  const pts   = path.join(dir, 'pts_in_hull.npy');
+  if (!fs.existsSync(proto)) await dlFile('https://raw.githubusercontent.com/richzhang/colorization/caffe/models/colorization_deploy_v2.prototxt', proto, () => {});
+  if (!fs.existsSync(pts))   await dlFile('https://github.com/richzhang/colorization/raw/caffe/resources/pts_in_hull.npy', pts, () => {});
+  if (!fs.existsSync(model)) {
+    emit(5, 'Downloading colorization model (~125 MB, first time)…');
+    await dlFile('http://eecs.berkeley.edu/~rich.zhang/projects/2016_colorization/files/demo_v2/colorization_release_v2.caffemodel', model, (pct) => emit(5 + pct * 0.4, `Downloading model: ${Math.round(pct)}%`));
+  }
+  return { proto, model, pts };
+}
+
+async function runColorize(input, emit) {
+  const dir = path.dirname(input);
+  const ext = path.extname(input);
+  const base = path.basename(input, ext);
+  const output = path.join(dir, `${base}_colorized${ext}`);
+  emit(3, 'Preparing colorize…');
+  const pythonPath = await ensurePython((m) => emit(3, m));
+  await ensurePyPackage(pythonPath, 'numpy', 'numpy', emit, 'numpy');
+  await ensurePyPackage(pythonPath, 'cv2', 'opencv-python-headless', emit, 'colorization');
+  const modelDir = path.join(app.getPath('userData'), 'colorize');
+  const { proto, model, pts } = await ensureColorizeModel(modelDir, emit);
+  const scriptPath = path.join(app.getPath('temp'), `vesper_color_${Date.now()}.py`);
+  fs.writeFileSync(scriptPath, COLORIZE_SCRIPT, 'utf-8');
+  emit(55, 'Colorizing…');
+  await runPyScript(pythonPath, scriptPath, [proto, model, pts, input, output], () => {});
+  try { fs.unlinkSync(scriptPath); } catch {}
+  if (!fs.existsSync(output)) throw new Error('Colorize produced no output.');
   return output;
 }
 

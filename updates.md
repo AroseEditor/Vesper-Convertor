@@ -1,5 +1,13 @@
 # Vesper Convertor — Updates
 
+## v2.52.0 (July 14, 2026) — More tools & AI colorize
+
+- **Colorize Photo** — AI colorization for black & white photos, running entirely on your device
+- **Meme Generator** — classic top/bottom bold text on any image
+- **Passport Photo** — one-click 2×2 in photo on a white background
+- **Find Duplicates** — scan a batch of images and report visually-similar ones
+- **GIF / Video → Frames** — export every frame as a PNG
+
 ## v2.51.0 (July 14, 2026) — 🚀 The Big One: Tools, AI & a Photo Editor
 
 A ground-up redesign and a massive feature expansion. Vesper is no longer just a

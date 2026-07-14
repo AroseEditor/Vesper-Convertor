@@ -190,6 +190,14 @@
     { id: 'ai-expand', cat: 'ai', mode: 'op', op: 'img-expand', label: 'Expand Canvas', desc: 'Add space around image',
       options: [ { key: 'pixels', label: 'Border (px)', type: 'number', def: 60 }, { key: 'color', label: 'Color', type: 'text', def: '#ffffff' } ] },
     { id: 'ai-fixtrans', cat: 'ai', mode: 'op', op: 'img-fixtransparency', label: 'Fix Transparency', desc: 'Clean alpha edges', options: [] },
+    { id: 'ai-colorize', cat: 'ai', mode: 'op', op: 'colorize', label: 'Colorize Photo', desc: 'AI color for B&W photos', options: [] },
+
+    /* ===== Batch 3 op-tools ===== */
+    { id: 'op-img-meme', cat: 'image', mode: 'op', op: 'img-meme', label: 'Meme Generator', desc: 'Top & bottom text',
+      options: [ { key: 'top', label: 'Top text', type: 'text', placeholder: 'TOP TEXT' }, { key: 'bottom', label: 'Bottom text', type: 'text', placeholder: 'BOTTOM TEXT' } ] },
+    { id: 'op-img-passport', cat: 'image', mode: 'op', op: 'img-passport', label: 'Passport Photo', desc: '2×2 in, white background', options: [] },
+    { id: 'op-img-dupes', cat: 'image', mode: 'op', op: 'img-duplicates', multi: true, label: 'Find Duplicates', desc: 'Spot similar images', options: [] },
+    { id: 'op-gif-frames', cat: 'video', mode: 'op', op: 'gif-frames', label: 'GIF / Video → Frames', desc: 'Export every frame as PNG', options: [] },
   ];
 
   /* ---------- Tab navigation ---------- */
