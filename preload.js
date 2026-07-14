@@ -25,6 +25,9 @@ contextBridge.exposeInMainWorld('electronAPI', {
   // Photo Editor export
   editorExport: (params) => ipcRenderer.invoke('editor:export', params),
 
+  // Pipelines
+  runPipeline: (params) => ipcRenderer.invoke('pipeline:run', params),
+
   // Clipboard
   clipboardSaveFile: (params) => ipcRenderer.invoke('clipboard:saveFile', params),
 

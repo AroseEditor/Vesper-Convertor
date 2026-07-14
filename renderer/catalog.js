@@ -191,6 +191,8 @@
       options: [ { key: 'pixels', label: 'Border (px)', type: 'number', def: 60 }, { key: 'color', label: 'Color', type: 'text', def: '#ffffff' } ] },
     { id: 'ai-fixtrans', cat: 'ai', mode: 'op', op: 'img-fixtransparency', label: 'Fix Transparency', desc: 'Clean alpha edges', options: [] },
     { id: 'ai-colorize', cat: 'ai', mode: 'op', op: 'colorize', label: 'Colorize Photo', desc: 'AI color for B&W photos', options: [] },
+    { id: 'ai-restore', cat: 'ai', mode: 'op', op: 'restore', label: 'Restore Photo', desc: 'Denoise + revive old photos', options: [] },
+    { id: 'ai-enhance', cat: 'ai', mode: 'op', op: 'enhance', label: 'Enhance Detail', desc: 'Sharpen & bring out detail', options: [] },
 
     /* ===== Batch 3 op-tools ===== */
     { id: 'op-img-meme', cat: 'image', mode: 'op', op: 'img-meme', label: 'Meme Generator', desc: 'Top & bottom text',
@@ -267,6 +269,7 @@
   const opRunBtn  = $('op-run-btn');
   let activeTool = null;
   let opMode = false;
+  let opCustomGetter = null; // set when a tool uses an interactive stage (crop/resize)
 
   function enterWorkspace(label) {
     if (label) workspaceLabel.textContent = label;
@@ -280,6 +283,7 @@
   function showCatalog() {
     activeTool = null;
     opMode = false;
+    opCustomGetter = null;
     filePreviews.style.display = 'none';
     filePreviews.innerHTML = '';
     workspaceView.style.display = 'none';
@@ -290,6 +294,7 @@
   function pickTool(tool) {
     activeTool = tool;
     opMode = (tool.mode === 'op');
+    opCustomGetter = null;
     if (typeof resetUI === 'function') resetUI(true);
     filePreviews.style.display = 'none';
     filePreviews.innerHTML = '';
@@ -347,9 +352,84 @@
 
   function showOpPanel() {
     if (!activeTool) return;
-    if (!opForm.children.length) renderOpForm(activeTool);
+    // Interactive stage for crop / resize instead of typing numbers.
+    const stageMode = activeTool.op === 'img-crop' ? 'crop' : (activeTool.op === 'img-resize' ? 'resize' : null);
+    const files = (typeof getWorkspaceFiles === 'function') ? getWorkspaceFiles() : [];
+    if (stageMode && files.length === 1) {
+      opForm.innerHTML = '';
+      opCustomGetter = buildInteractiveStage(opForm, files[0], stageMode);
+    } else if (!opForm.children.length) {
+      opCustomGetter = null;
+      renderOpForm(activeTool);
+    }
     $('op-panel-title').textContent = activeTool.label;
     opPanel.style.display = 'flex';
+  }
+
+  // Draggable crop / resize box laid over the image. Returns a getter for options.
+  function buildInteractiveStage(container, imgPath, mode) {
+    container.innerHTML = '';
+    const stage = document.createElement('div'); stage.className = 'crop-stage';
+    const img = document.createElement('img');
+    img.src = 'file://' + encodeURI(imgPath).replace(/#/g, '%23');
+    const box = document.createElement('div'); box.className = 'crop-box';
+    ['nw', 'ne', 'sw', 'se'].forEach(h => { const d = document.createElement('div'); d.className = 'crop-handle ' + h; d.dataset.h = h; box.appendChild(d); });
+    const readout = document.createElement('div'); readout.className = 'crop-readout';
+    const hint = document.createElement('div'); hint.className = 'crop-hint';
+    hint.textContent = mode === 'resize' ? 'Drag a corner to set the new size.' : 'Drag the box to move · drag a corner to resize.';
+    stage.appendChild(img); stage.appendChild(box);
+    container.appendChild(stage); container.appendChild(readout); container.appendChild(hint);
+
+    let natW = 0, natH = 0, dispW = 0, dispH = 0;
+    let bx = 0, by = 0, bw = 0, bh = 0;
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const scale = () => (dispW ? natW / dispW : 1);
+
+    function updateBox() {
+      box.style.left = bx + 'px'; box.style.top = by + 'px'; box.style.width = bw + 'px'; box.style.height = bh + 'px';
+      const s = scale();
+      const rw = Math.round(bw * s), rh = Math.round(bh * s), rx = Math.round(bx * s), ry = Math.round(by * s);
+      readout.textContent = mode === 'resize' ? `New size: ${rw} × ${rh} px` : `Crop: ${rw} × ${rh} px at (${rx}, ${ry})`;
+    }
+    img.onload = () => {
+      natW = img.naturalWidth; natH = img.naturalHeight;
+      dispW = img.clientWidth; dispH = img.clientHeight;
+      if (mode === 'resize') { bx = 0; by = 0; bw = dispW; bh = dispH; }
+      else { bw = dispW * 0.6; bh = dispH * 0.6; bx = (dispW - bw) / 2; by = (dispH - bh) / 2; }
+      updateBox();
+    };
+
+    let drag = null;
+    function onMove(e) {
+      if (!drag) return;
+      const dx = e.clientX - drag.sx, dy = e.clientY - drag.sy;
+      if (drag.type === 'move') {
+        bx = clamp(drag.bx + dx, 0, dispW - bw);
+        by = clamp(drag.by + dy, 0, dispH - bh);
+      } else {
+        const h = drag.handle;
+        let nx = drag.bx, ny = drag.by, nw = drag.bw, nh = drag.bh;
+        if (h.includes('e')) nw = drag.bw + dx;
+        if (h.includes('s')) nh = drag.bh + dy;
+        if (h.includes('w')) { nw = drag.bw - dx; nx = drag.bx + dx; }
+        if (h.includes('n')) { nh = drag.bh - dy; ny = drag.by + dy; }
+        if (mode === 'resize') { const ar = drag.bw / drag.bh; if (Math.abs(dx) >= Math.abs(dy)) nh = nw / ar; else nw = nh * ar; }
+        nw = Math.max(16, nw); nh = Math.max(16, nh);
+        nx = clamp(nx, 0, dispW - 16); ny = clamp(ny, 0, dispH - 16);
+        bx = nx; by = ny; bw = Math.min(nw, dispW - bx); bh = Math.min(nh, dispH - by);
+      }
+      updateBox();
+    }
+    function onUp() { drag = null; document.removeEventListener('pointermove', onMove); document.removeEventListener('pointerup', onUp); }
+    function start(e, type, handle) { e.preventDefault(); drag = { type, handle, sx: e.clientX, sy: e.clientY, bx, by, bw, bh }; document.addEventListener('pointermove', onMove); document.addEventListener('pointerup', onUp); }
+    if (mode === 'crop') box.addEventListener('pointerdown', e => { if (e.target === box) start(e, 'move'); });
+    box.querySelectorAll('.crop-handle').forEach(hd => hd.addEventListener('pointerdown', e => { e.stopPropagation(); start(e, 'resize', hd.dataset.h); }));
+
+    return function () {
+      const s = scale();
+      if (mode === 'resize') return { width: Math.round(bw * s), height: Math.round(bh * s) };
+      return { x: Math.round(bx * s), y: Math.round(by * s), w: Math.round(bw * s), h: Math.round(bh * s) };
+    };
   }
 
   function baseName(p) { return (p || '').split(/[\\/]/).pop(); }
@@ -358,7 +438,8 @@
     const files = (typeof getWorkspaceFiles === 'function') ? getWorkspaceFiles() : [];
     if (!files.length) { setProgress(0, 'Add a file first'); show($('progress-section')); setTimeout(() => hide($('progress-section')), 1800); return; }
     const options = {};
-    opForm.querySelectorAll('[data-key]').forEach(el => { options[el.dataset.key] = el.value; });
+    if (opCustomGetter) Object.assign(options, opCustomGetter());
+    else opForm.querySelectorAll('[data-key]').forEach(el => { options[el.dataset.key] = el.value; });
 
     const progressSection = $('progress-section');
     show(progressSection); setProgress(0, 'Starting…');
@@ -453,5 +534,6 @@
     switchTab,
     isOpMode,
     showOpPanel,
+    opTools: TOOLS.filter(t => t.mode === 'op' && !t.multi), // single-file ops, chainable in pipelines
   };
 })();

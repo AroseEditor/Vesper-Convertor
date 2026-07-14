@@ -1,5 +1,14 @@
 # Vesper Convertor — Updates
 
+## v2.53.0 (July 14, 2026) — Interactive tools, Pipelines & Languages
+
+- **Draggable crop & resize** — crop and resize now show your image with a drag-to-adjust box and handles, with a live pixel readout. No more typing X/Y/W/H
+- **Format picker as buttons** — choosing an output format is now a grid of clearly-labelled buttons instead of a dropdown
+- **Pipelines** — chain tools into a reusable workflow; each step feeds the next, runs across every file you add, and can be exported/imported as JSON
+- **Photo Editor icons** — replaced the placeholder emoji tools with crisp line icons
+- **Languages** — a language switcher in Settings with 21 languages and right-to-left (RTL) layout for Arabic; English is the default
+- **Restore Photo** and **Enhance Detail** — new on-device AI (denoise + revive, and detail sharpening)
+
 ## v2.52.0 (July 14, 2026) — More tools & AI colorize
 
 - **Colorize Photo** — AI colorization for black & white photos, running entirely on your device

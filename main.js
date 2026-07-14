@@ -3521,6 +3521,35 @@ ipcMain.handle('tool:op', async (event, { op, filePaths, options }) => {
   }
 });
 
+// Pipelines — run a sequence of op-tool steps, chaining each step's output into
+// the next, once per input file (batch). Only single-file ops are chainable.
+ipcMain.handle('pipeline:run', async (event, { steps, filePaths }) => {
+  const emit = (pct, msg) => event.sender.send('convert:progress', { percent: pct, message: msg });
+  try {
+    if (!steps || !steps.length) throw new Error('Pipeline has no steps.');
+    if (!filePaths || !filePaths.length) throw new Error('No files selected.');
+    const results = [];
+    const totalUnits = filePaths.length * steps.length;
+    for (let fi = 0; fi < filePaths.length; fi++) {
+      let current = filePaths[fi];
+      for (let si = 0; si < steps.length; si++) {
+        const done = fi * steps.length + si;
+        emit(Math.round((done / totalUnits) * 100), `File ${fi + 1}/${filePaths.length} · step ${si + 1}/${steps.length}: ${steps[si].op}`);
+        current = await runToolOp(steps[si].op, [current], steps[si].options || {}, () => {});
+      }
+      results.push(current);
+    }
+    emit(100, `Pipeline complete — ${results.length} file${results.length > 1 ? 's' : ''}`);
+    const last = results[results.length - 1];
+    let outputSize = 0;
+    try { const st = fs.statSync(last); outputSize = st.isDirectory() ? getDirSize(last) : st.size; } catch {}
+    return { success: true, outputPath: results.length === 1 ? last : path.dirname(last), outputSize, count: results.length };
+  } catch (err) {
+    event.sender.send('convert:error', { message: err.message });
+    return { error: err.message };
+  }
+});
+
 // Spawn the bundled ffmpeg with progress parsing (time= → percent).
 function ffmpegRun(args, emit, totalSec) {
   return new Promise((resolve, reject) => {
@@ -3903,6 +3932,8 @@ async function runToolOp(op, filePaths, o, emit) {
     case 'transcribe':  return await runTranscribe(input, ext, o, emit);
     case 'faceblur':    return await runFaceBlur(input, emit);
     case 'colorize':    return await runColorize(input, emit);
+    case 'restore':     return await runCvPhoto(input, 'restore', emit);
+    case 'enhance':     return await runCvPhoto(input, 'enhance', emit);
 
     default:
       throw new Error(`Unknown tool operation: ${op}`);
@@ -4056,6 +4087,42 @@ async function runColorize(input, emit) {
   await runPyScript(pythonPath, scriptPath, [proto, model, pts, input, output], () => {});
   try { fs.unlinkSync(scriptPath); } catch {}
   if (!fs.existsSync(output)) throw new Error('Colorize produced no output.');
+  return output;
+}
+
+// Photo restore / enhance — CPU OpenCV (denoise + CLAHE + unsharp / detail enhance).
+const CVPHOTO_SCRIPT = [
+  'import sys, cv2, numpy as np',
+  'mode, inp, out = sys.argv[1], sys.argv[2], sys.argv[3]',
+  'img = cv2.imread(inp)',
+  "if mode == 'restore':",
+  '    img = cv2.fastNlMeansDenoisingColored(img, None, 6, 6, 7, 21)',
+  '    lab = cv2.cvtColor(img, cv2.COLOR_BGR2LAB)',
+  '    l, a, b = cv2.split(lab)',
+  '    l = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8)).apply(l)',
+  '    img = cv2.cvtColor(cv2.merge((l, a, b)), cv2.COLOR_LAB2BGR)',
+  '    blur = cv2.GaussianBlur(img, (0, 0), 3)',
+  '    img = cv2.addWeighted(img, 1.4, blur, -0.4, 0)',
+  'else:',
+  '    img = cv2.detailEnhance(img, sigma_s=10, sigma_r=0.15)',
+  'cv2.imwrite(out, img)',
+].join('\n');
+
+async function runCvPhoto(input, mode, emit) {
+  const dir = path.dirname(input);
+  const ext = path.extname(input);
+  const base = path.basename(input, ext);
+  const output = path.join(dir, `${base}_${mode === 'restore' ? 'restored' : 'enhanced'}${ext}`);
+  emit(3, `Preparing ${mode}…`);
+  const pythonPath = await ensurePython((m) => emit(3, m));
+  await ensurePyPackage(pythonPath, 'numpy', 'numpy', emit, 'numpy');
+  await ensurePyPackage(pythonPath, 'cv2', 'opencv-python-headless', emit, 'photo AI');
+  const scriptPath = path.join(app.getPath('temp'), `vesper_cv_${Date.now()}.py`);
+  fs.writeFileSync(scriptPath, CVPHOTO_SCRIPT, 'utf-8');
+  emit(45, mode === 'restore' ? 'Restoring…' : 'Enhancing…');
+  await runPyScript(pythonPath, scriptPath, [mode, input, output], () => {});
+  try { fs.unlinkSync(scriptPath); } catch {}
+  if (!fs.existsSync(output)) throw new Error(`${mode} produced no output.`);
   return output;
 }
 
