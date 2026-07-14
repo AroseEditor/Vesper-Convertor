@@ -1,5 +1,11 @@
 # Vesper Convertor — Updates
 
+## v2.54.0 (July 14, 2026) — Visual trimming & interactive video tools
+
+- **Trim with a preview** — trimming audio or video now shows a live preview with a timeline you drag from both ends to set the start and end, with a "Preview range" play button and a live time readout. No more typing seconds
+- **Draggable video crop** — cropping a video now shows the video with the same drag-to-crop box as images
+- **Photo Editor: Move tool** — grab and reposition a layer's contents (shortcut **V**), alongside the new line-icon toolbar
+
 ## v2.53.0 (July 14, 2026) — Interactive tools, Pipelines & Languages
 
 - **Draggable crop & resize** — crop and resize now show your image with a drag-to-adjust box and handles, with a live pixel readout. No more typing X/Y/W/H

@@ -352,12 +352,17 @@
 
   function showOpPanel() {
     if (!activeTool) return;
-    // Interactive stage for crop / resize instead of typing numbers.
-    const stageMode = activeTool.op === 'img-crop' ? 'crop' : (activeTool.op === 'img-resize' ? 'resize' : null);
+    const op = activeTool.op;
+    // Interactive visual stages instead of typing numbers.
+    const stageMode = (op === 'img-crop' || op === 'vid-crop') ? 'crop' : (op === 'img-resize' ? 'resize' : null);
+    const isTrim = (op === 'vid-trim' || op === 'aud-trim');
     const files = (typeof getWorkspaceFiles === 'function') ? getWorkspaceFiles() : [];
-    if (stageMode && files.length === 1) {
+    if (isTrim && files.length === 1) {
       opForm.innerHTML = '';
-      opCustomGetter = buildInteractiveStage(opForm, files[0], stageMode);
+      opCustomGetter = buildTrimStage(opForm, files[0], op === 'vid-trim');
+    } else if (stageMode && files.length === 1) {
+      opForm.innerHTML = '';
+      opCustomGetter = buildInteractiveStage(opForm, files[0], stageMode, op === 'vid-crop');
     } else if (!opForm.children.length) {
       opCustomGetter = null;
       renderOpForm(activeTool);
@@ -366,18 +371,21 @@
     opPanel.style.display = 'flex';
   }
 
-  // Draggable crop / resize box laid over the image. Returns a getter for options.
-  function buildInteractiveStage(container, imgPath, mode) {
+  const mediaUrl = (p) => 'file://' + encodeURI(p).replace(/#/g, '%23');
+
+  // Draggable crop / resize box laid over an image or video. Returns a getter.
+  function buildInteractiveStage(container, srcPath, mode, isVideo) {
     container.innerHTML = '';
     const stage = document.createElement('div'); stage.className = 'crop-stage';
-    const img = document.createElement('img');
-    img.src = 'file://' + encodeURI(imgPath).replace(/#/g, '%23');
+    const media = document.createElement(isVideo ? 'video' : 'img');
+    media.src = mediaUrl(srcPath);
+    if (isVideo) { media.muted = true; media.playsInline = true; media.preload = 'metadata'; }
     const box = document.createElement('div'); box.className = 'crop-box';
     ['nw', 'ne', 'sw', 'se'].forEach(h => { const d = document.createElement('div'); d.className = 'crop-handle ' + h; d.dataset.h = h; box.appendChild(d); });
     const readout = document.createElement('div'); readout.className = 'crop-readout';
     const hint = document.createElement('div'); hint.className = 'crop-hint';
     hint.textContent = mode === 'resize' ? 'Drag a corner to set the new size.' : 'Drag the box to move · drag a corner to resize.';
-    stage.appendChild(img); stage.appendChild(box);
+    stage.appendChild(media); stage.appendChild(box);
     container.appendChild(stage); container.appendChild(readout); container.appendChild(hint);
 
     let natW = 0, natH = 0, dispW = 0, dispH = 0;
@@ -391,13 +399,16 @@
       const rw = Math.round(bw * s), rh = Math.round(bh * s), rx = Math.round(bx * s), ry = Math.round(by * s);
       readout.textContent = mode === 'resize' ? `New size: ${rw} × ${rh} px` : `Crop: ${rw} × ${rh} px at (${rx}, ${ry})`;
     }
-    img.onload = () => {
-      natW = img.naturalWidth; natH = img.naturalHeight;
-      dispW = img.clientWidth; dispH = img.clientHeight;
+    const onReady = () => {
+      natW = isVideo ? media.videoWidth : media.naturalWidth;
+      natH = isVideo ? media.videoHeight : media.naturalHeight;
+      dispW = media.clientWidth; dispH = media.clientHeight;
       if (mode === 'resize') { bx = 0; by = 0; bw = dispW; bh = dispH; }
       else { bw = dispW * 0.6; bh = dispH * 0.6; bx = (dispW - bw) / 2; by = (dispH - bh) / 2; }
       updateBox();
     };
+    if (isVideo) { media.addEventListener('loadedmetadata', () => { try { media.currentTime = Math.min(0.1, (media.duration || 1) / 2); } catch {} onReady(); }); }
+    else { media.onload = onReady; }
 
     let drag = null;
     function onMove(e) {
@@ -430,6 +441,73 @@
       if (mode === 'resize') return { width: Math.round(bw * s), height: Math.round(bh * s) };
       return { x: Math.round(bx * s), y: Math.round(by * s), w: Math.round(bw * s), h: Math.round(bh * s) };
     };
+  }
+
+  // Trim stage: media preview + dual-handle timeline for start/end. Returns getter.
+  function buildTrimStage(container, srcPath, isVideo) {
+    container.innerHTML = '';
+    const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+    const media = document.createElement(isVideo ? 'video' : 'audio');
+    media.src = mediaUrl(srcPath);
+    media.preload = 'metadata';
+    if (isVideo) { media.className = 'trim-video'; media.muted = false; media.playsInline = true; }
+
+    const timeline = document.createElement('div'); timeline.className = 'trim-timeline';
+    const range = document.createElement('div'); range.className = 'trim-range';
+    const playhead = document.createElement('div'); playhead.className = 'trim-playhead';
+    const hStart = document.createElement('div'); hStart.className = 'trim-handle start';
+    const hEnd = document.createElement('div'); hEnd.className = 'trim-handle end';
+    timeline.appendChild(range); timeline.appendChild(playhead); timeline.appendChild(hStart); timeline.appendChild(hEnd);
+    const readout = document.createElement('div'); readout.className = 'trim-readout';
+    const controls = document.createElement('div'); controls.className = 'trim-controls';
+    const playBtn = document.createElement('button'); playBtn.type = 'button'; playBtn.className = 'ed-btn'; playBtn.textContent = '▶ Preview range';
+    controls.appendChild(playBtn);
+
+    if (isVideo) container.appendChild(media);
+    container.appendChild(timeline); container.appendChild(readout); container.appendChild(controls);
+    if (!isVideo) container.appendChild(media);
+
+    let dur = 0, startT = 0, endT = 0;
+    const fmt = (t) => { t = Math.max(0, t); const m = Math.floor(t / 60), s = Math.floor(t % 60); return `${m}:${String(s).padStart(2, '0')}`; };
+    const pct = (t) => (dur ? (t / dur) * 100 : 0);
+    function update() {
+      hStart.style.left = pct(startT) + '%'; hEnd.style.left = pct(endT) + '%';
+      range.style.left = pct(startT) + '%'; range.style.width = (pct(endT) - pct(startT)) + '%';
+      readout.textContent = `Keep ${fmt(startT)} → ${fmt(endT)}  ·  length ${fmt(endT - startT)}`;
+    }
+    media.addEventListener('loadedmetadata', () => { dur = media.duration || 0; startT = 0; endT = dur; update(); });
+
+    function dragHandle(handle, isStart) {
+      handle.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); e.stopPropagation();
+        const rect = timeline.getBoundingClientRect();
+        const move = (ev) => {
+          const t = clamp((ev.clientX - rect.left) / rect.width, 0, 1) * dur;
+          if (isStart) { startT = Math.min(t, endT - 0.1); try { media.currentTime = startT; } catch {} }
+          else { endT = Math.max(t, startT + 0.1); try { media.currentTime = endT; } catch {} }
+          update();
+        };
+        const up = () => { document.removeEventListener('pointermove', move); document.removeEventListener('pointerup', up); };
+        document.addEventListener('pointermove', move); document.addEventListener('pointerup', up);
+      });
+    }
+    dragHandle(hStart, true); dragHandle(hEnd, false);
+
+    timeline.addEventListener('pointerdown', (e) => {
+      if (e.target === hStart || e.target === hEnd) return;
+      const rect = timeline.getBoundingClientRect();
+      try { media.currentTime = clamp((e.clientX - rect.left) / rect.width, 0, 1) * dur; } catch {}
+    });
+    media.addEventListener('timeupdate', () => {
+      playhead.style.left = pct(media.currentTime) + '%';
+      if (!media.paused && media.currentTime >= endT) { media.pause(); playBtn.textContent = '▶ Preview range'; }
+    });
+    playBtn.addEventListener('click', () => {
+      if (media.paused) { try { media.currentTime = startT; } catch {} media.play(); playBtn.textContent = '⏸ Pause'; }
+      else { media.pause(); playBtn.textContent = '▶ Preview range'; }
+    });
+
+    return function () { return { start: +startT.toFixed(2), end: +endT.toFixed(2) }; };
   }
 
   function baseName(p) { return (p || '').split(/[\\/]/).pop(); }

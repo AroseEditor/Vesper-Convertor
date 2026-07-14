@@ -156,6 +156,7 @@
   /* ---------- Drawing ---------- */
   let drawing = false, startX = 0, startY = 0, lastX = 0, lastY = 0;
   let overlay = null; // temp canvas for shape preview
+  let moveSnap = null; // bitmap copy of the layer while moving it
 
   function canvasPos(e) {
     const r = view.getBoundingClientRect();
@@ -189,6 +190,10 @@
     } else if (state.tool === 'text') {
       const t = prompt('Text:'); drawing = false;
       if (t) { snapshot(); ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = state.opacity; ctx.fillStyle = state.color; ctx.font = `${Math.max(12, state.size * 2)}px Outfit, sans-serif`; ctx.textBaseline = 'top'; ctx.fillText(t, p.x, p.y); ctx.globalAlpha = 1; composite(); }
+    } else if (state.tool === 'move') {
+      snapshot();
+      moveSnap = newCanvas(W, H);
+      moveSnap.getContext('2d').drawImage(l.canvas, 0, 0);
     } else {
       // shapes — use an overlay for live preview
       snapshot();
@@ -206,6 +211,11 @@
     if (state.tool === 'brush' || state.tool === 'eraser') {
       ctx.beginPath(); ctx.moveTo(lastX, lastY); ctx.lineTo(p.x, p.y); ctx.stroke();
       lastX = p.x; lastY = p.y; composite();
+    } else if (state.tool === 'move' && moveSnap) {
+      ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+      ctx.clearRect(0, 0, W, H);
+      ctx.drawImage(moveSnap, p.x - startX, p.y - startY);
+      composite();
     } else if (overlay) {
       // preview shape on composite
       composite();
@@ -229,6 +239,7 @@
       overlay = null; composite();
     }
     if (l) l.canvas.getContext('2d').globalAlpha = 1;
+    moveSnap = null;
     drawing = false;
   });
 
@@ -324,6 +335,7 @@
     else if ((e.ctrlKey || e.metaKey) && e.key.toLowerCase() === 'y') { e.preventDefault(); redo(); }
     else if (e.key === 'b') selectTool('brush');
     else if (e.key === 'e') selectTool('eraser');
+    else if (e.key === 'v') selectTool('move');
   });
   function selectTool(t) {
     const btn = document.querySelector(`.ed-tool[data-tool="${t}"]`);

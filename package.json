@@ -1,6 +1,6 @@
 {
   "name": "Vesper-Convertor",
-  "version": "2.53.0",
+  "version": "2.54.0",
   "description": "Local-first file conversion, editing & AI. 80+ tools. Zero uploads. Zero limits.",
   "author": "Ayush.ue5",
   "main": "main.js",
