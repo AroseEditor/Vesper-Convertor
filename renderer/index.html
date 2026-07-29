@@ -528,6 +528,21 @@
           </div>
 
           <div class="settings-card">
+            <div class="settings-group-title">Theme</div>
+            <div class="theme-picker" id="theme-picker">
+              <button class="theme-option active" data-theme="mauve" type="button">
+                <span class="theme-swatch swatch-mauve"></span>
+                <span class="theme-name">Mauve Noir</span>
+              </button>
+              <button class="theme-option" data-theme="glass" type="button">
+                <span class="theme-swatch swatch-glass"></span>
+                <span class="theme-name">Liquid Glass</span>
+              </button>
+            </div>
+            <p class="option-hint">Liquid Glass uses translucent materials and spring motion. It respects your reduced-motion and reduced-transparency settings.</p>
+          </div>
+
+          <div class="settings-card">
             <div class="settings-group-title">Language</div>
             <select class="settings-select" id="app-language">
               <option value="en" selected>English</option>
@@ -710,6 +725,7 @@
     </div>
   </div>
 
+  <script src="theme.js"></script>
   <script src="catalog.js"></script>
   <script src="app.js"></script>
   <script src="editor.js"></script>

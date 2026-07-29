@@ -1,5 +1,11 @@
 # Vesper Convertor — Updates
 
+## v2.55.0 (July 29, 2026) — Themes
+
+- Added a theme picker in Settings with two presets: Mauve Noir (the existing look) and Liquid Glass.
+- Liquid Glass uses translucent frosted surfaces with bright specular edges, a slowly drifting colored backdrop for the glass to refract, spring-based hover and press motion, and a light sweep across tool cards on hover. It honors `prefers-reduced-motion` and `prefers-reduced-transparency`.
+- The selected theme persists across restarts.
+
 ## v2.54.0 (July 14, 2026) — Visual trimming & interactive video tools
 
 - **Trim with a preview** — trimming audio or video now shows a live preview with a timeline you drag from both ends to set the start and end, with a "Preview range" play button and a live time readout. No more typing seconds

@@ -17,3 +17,6 @@ Git rules:
 - When a unit of work is finished and stable, say so explicitly:
   "READY TO COMMIT" followed by a one-line list of changed files and a suggested commit message.
 - If work is incomplete or untested, say that instead — do not declare readiness early.
+
+Very Important Rule:
+- By skills I mean default skills you have downloaded yourself as well as skills ive provided you which you ALWAYS have to check no matter the fucking what according to our subject.
